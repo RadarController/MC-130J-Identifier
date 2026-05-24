@@ -923,8 +923,174 @@ async function pageConfirmsIdentity(pageUrl, serial, local) {
   return identityIsConfirmed(`${pageUrl} ${html}`, serial, local) && likelyMc130Context(`${pageUrl} ${html}`);
 }
 
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function decodeRepeatedURIComponent(value) {
+  let current = String(value || "");
+  for (let index = 0; index < 3; index += 1) {
+    const decoded = safeDecodeURIComponent(current);
+    if (decoded === current) break;
+    current = decoded;
+  }
+  return normalizeImageUrl(decodeHtmlEntities(current));
+}
+
+function tagAttribute(tag, name) {
+  const match = String(tag || "").match(new RegExp(`${name}=["']([^"']*)["']`, "i"));
+  return match ? decodeHtmlEntities(match[1]) : "";
+}
+
+function stripHtml(value) {
+  return decodeHtmlEntities(String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function bingResultPageUrlFromDetailUrl(detailUrl) {
+  try {
+    const parsed = new URL(detailUrl, "https://www.bing.com");
+    const candidates = [
+      parsed.searchParams.get("purl"),
+      parsed.searchParams.get("rurl"),
+      parsed.searchParams.get("url"),
+      parsed.searchParams.get("adurl")
+    ];
+    for (const candidate of candidates) {
+      const decoded = decodeRepeatedURIComponent(candidate || "");
+      if (/^https?:\/\//i.test(decoded)) return decoded;
+    }
+  } catch (error) {
+    return "";
+  }
+  return "";
+}
+
+function bingImageUrlFromDetailUrl(detailUrl) {
+  try {
+    const parsed = new URL(detailUrl, "https://www.bing.com");
+    const candidates = [
+      parsed.searchParams.get("mediaurl"),
+      parsed.searchParams.get("imgurl"),
+      parsed.searchParams.get("murl")
+    ];
+    for (const candidate of candidates) {
+      const decoded = decodeRepeatedURIComponent(candidate || "");
+      if (/^https?:\/\//i.test(decoded)) return decoded;
+    }
+  } catch (error) {
+    return "";
+  }
+  return "";
+}
+
+function bingDimensionsFromDetailUrl(detailUrl) {
+  try {
+    const parsed = new URL(detailUrl, "https://www.bing.com");
+    return {
+      width: Number(parsed.searchParams.get("expw") || parsed.searchParams.get("w") || parsed.searchParams.get("width") || 0),
+      height: Number(parsed.searchParams.get("exph") || parsed.searchParams.get("h") || parsed.searchParams.get("height") || 0)
+    };
+  } catch (error) {
+    return { width: 0, height: 0 };
+  }
+}
+
+function collectBingDetailLinks(html, baseUrl) {
+  const results = [];
+  const add = (href, metadata = "", width = 0, height = 0) => {
+    const decodedHref = decodeRepeatedURIComponent(href);
+    let absolute = "";
+    try {
+      absolute = new URL(decodedHref, baseUrl).href;
+    } catch (error) {
+      return;
+    }
+
+    const imageUrl = bingImageUrlFromDetailUrl(absolute);
+    if (!imageUrl) return;
+    const pageUrl = bingResultPageUrlFromDetailUrl(absolute);
+    const dimensions = bingDimensionsFromDetailUrl(absolute);
+    results.push({
+      imageUrl,
+      pageUrl,
+      metadata,
+      width: Number(width || dimensions.width || 0),
+      height: Number(height || dimensions.height || 0)
+    });
+  };
+
+  for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']*(?:mediaurl|imgurl|murl)=[^"']+)["'][^>]*>/gi)) {
+    const tag = match[0];
+    const start = Math.max(0, (match.index || 0) - 450);
+    const end = Math.min(html.length, (match.index || 0) + tag.length + 450);
+    const metadata = [
+      tagAttribute(tag, "aria-label"),
+      tagAttribute(tag, "title"),
+      tagAttribute(tag, "data-title"),
+      stripHtml(html.slice(start, end))
+    ].filter(Boolean).join(" ");
+    add(match[1], metadata);
+  }
+
+  // Bing often stores the clicked/detail view URL as escaped text rather than as a clean anchor href.
+  for (const match of html.matchAll(/(?:href|murl|mediaurl|imgurl)["'=:\s]+([^"'<>\s]*(?:mediaurl|imgurl|murl)=[^"'<>\s]+)/gi)) {
+    add(match[1], querySafeMetadataFromBingSnippet(html, match.index || 0));
+  }
+
+  return results;
+}
+
+function querySafeMetadataFromBingSnippet(html, index) {
+  const start = Math.max(0, Number(index || 0) - 500);
+  const end = Math.min(html.length, Number(index || 0) + 500);
+  return stripHtml(html.slice(start, end));
+}
+
+function collectBingMetadataObjects(html) {
+  const results = [];
+  const parseItem = (raw, fallbackMetadata = "") => {
+    try {
+      const json = decodeHtmlEntities(raw)
+        .replaceAll("\\/", "/")
+        .replaceAll("\\u002f", "/");
+      const item = JSON.parse(json);
+      const imageUrl = item.murl || item.mediaurl || item.imgurl || "";
+      if (!imageUrl) return;
+      results.push({
+        imageUrl,
+        metadata: `${item.t || ""} ${item.desc || ""} ${item.snippet || ""} ${item.purl || ""} ${fallbackMetadata}`,
+        width: item.w || item.width || item.expw || 0,
+        height: item.h || item.height || item.exph || 0,
+        pageUrl: item.purl || item.rurl || ""
+      });
+    } catch (error) {
+      // Ignore malformed Bing metadata; other extraction paths handle the same page.
+    }
+  };
+
+  for (const match of html.matchAll(/<a\b[^>]*\bm=["']([^"']+)["'][^>]*>/gi)) {
+    const tag = match[0];
+    const metadata = [tagAttribute(tag, "aria-label"), tagAttribute(tag, "title")].filter(Boolean).join(" ");
+    parseItem(match[1], metadata);
+  }
+
+  for (const match of html.matchAll(/\bm=(?:&quot;|")({[\s\S]*?})(?:&quot;|")/g)) {
+    parseItem(match[1]);
+  }
+
+  return results;
+}
+
 async function fetchBingImages(query, serial, local, limit, debug) {
-  const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1&safeSearch=strict`;
+  const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC3&first=1&safeSearch=strict`;
   const debugEntry = {
     query,
     url,
@@ -943,7 +1109,8 @@ async function fetchBingImages(query, serial, local, limit, debug) {
   const response = await fetch(url, {
     headers: {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
-      "accept-language": "en-US,en;q=0.9"
+      "accept-language": "en-US,en;q=0.9",
+      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
   });
 
@@ -969,38 +1136,36 @@ async function fetchBingImages(query, serial, local, limit, debug) {
     }
     rawSeen.add(key);
     rawResults.push({ imageUrl, metadata, width, height, pageUrl });
-    addDebugSample(debugEntry.rawSamples, { imageUrl, pageUrl, metadata: String(metadata || "").slice(0, 180), width, height }, 6);
+    addDebugSample(debugEntry.rawSamples, { imageUrl, pageUrl, metadata: String(metadata || "").slice(0, 220), width, height }, 8);
   };
 
-  for (const match of html.matchAll(/m=(?:&quot;|")({.*?})(?:&quot;|")/g)) {
-    try {
-      const json = normalizeImageUrl(match[1])
-        .replaceAll("&amp;", "&")
-        .replaceAll("&quot;", "\"");
-      const item = JSON.parse(json);
-      if (item.murl) {
-        collectImage(
-          item.murl,
-          `${item.t || ""} ${item.desc || ""} ${item.purl || ""}`,
-          item.w || item.width,
-          item.h || item.height,
-          item.purl || ""
-        );
-      }
-    } catch (error) {
-      debugCounter(debugEntry.rejected, "metadata_parse_error");
+  for (const item of collectBingMetadataObjects(html)) {
+    collectImage(item.imageUrl, item.metadata, item.width, item.height, item.pageUrl);
+  }
+
+  for (const item of collectBingDetailLinks(html, url)) {
+    collectImage(item.imageUrl, item.metadata, item.width, item.height, item.pageUrl);
+  }
+
+  const encodedParamPatterns = [
+    /[?&](?:mediaurl|imgurl|murl)=([^&"'<>\s]+)/gi,
+    /(?:mediaurl|imgurl|murl)(?:&quot;|"|')?\s*[:=]\s*(?:&quot;|"|')([^&"'<>\s]+)(?:&quot;|"|')?/gi
+  ];
+
+  for (const pattern of encodedParamPatterns) {
+    for (const match of html.matchAll(pattern)) {
+      collectImage(match[1], querySafeMetadataFromBingSnippet(html, match.index || 0));
     }
   }
 
-  const patterns = [
+  const directPatterns = [
     /murl&quot;:&quot;(https?:.*?)(?:&quot;|\\")/g,
-    /"murl":"(https?:.*?)(?:"|\\")/g,
-    /mediaurl=(https?:[^&"]+)/g
+    /"murl":"(https?:.*?)(?:"|\\")/g
   ];
 
-  for (const pattern of patterns) {
+  for (const pattern of directPatterns) {
     for (const match of html.matchAll(pattern)) {
-      collectImage(match[1], query);
+      collectImage(match[1], querySafeMetadataFromBingSnippet(html, match.index || 0));
     }
   }
 
@@ -1020,7 +1185,7 @@ async function fetchBingImages(query, serial, local, limit, debug) {
     const evidence = `${raw.metadata} ${raw.imageUrl} ${raw.pageUrl}`;
     const contextEvidence = `${query} ${evidence}`;
     let confirmed = identityIsConfirmed(evidence, serial, local);
-    let confirmedBy = "Bing result metadata or image URL contains exact serial/local marking";
+    let confirmedBy = "Bing image-result metadata, detail URL, or image/source URL contains exact serial/local marking";
 
     if (!confirmed && raw.pageUrl) {
       const pageKey = raw.pageUrl.split("?")[0].toLowerCase();
@@ -1030,24 +1195,24 @@ async function fetchBingImages(query, serial, local, limit, debug) {
       }
       confirmed = pageIdentityCache.get(pageKey);
       if (confirmed) debugEntry.pageConfirmed += 1;
-      confirmedBy = "Bing result source page contains exact serial/local marking";
+      confirmedBy = "Bing image result source page contains exact serial/local marking";
     }
 
     if (!confirmed) {
       debugCounter(debugEntry.rejected, "serial_or_local_not_confirmed");
-      addDebugSample(debugEntry.rejectedSamples, { reason: "serial_or_local_not_confirmed", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 180) });
+      addDebugSample(debugEntry.rejectedSamples, { reason: "serial_or_local_not_confirmed", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 220) });
       continue;
     }
     if (!likelyMc130Context(contextEvidence)) {
       debugCounter(debugEntry.rejected, "no_mc130_or_c130_context");
-      addDebugSample(debugEntry.rejectedSamples, { reason: "no_mc130_or_c130_context", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 180) });
+      addDebugSample(debugEntry.rejectedSamples, { reason: "no_mc130_or_c130_context", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 220) });
       continue;
     }
 
     const validated = await validateImageCandidate(raw.imageUrl, { enforceAllowedHosts: false, rejectBranding: true });
     if (!validated) {
       debugCounter(debugEntry.rejected, "image_validation_failed");
-      addDebugSample(debugEntry.rejectedSamples, { reason: "image_validation_failed", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 180) });
+      addDebugSample(debugEntry.rejectedSamples, { reason: "image_validation_failed", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 220) });
       continue;
     }
 
@@ -1068,7 +1233,7 @@ async function fetchBingImages(query, serial, local, limit, debug) {
       identityConfirmedBy: confirmedBy
     });
     debugEntry.accepted += 1;
-    addDebugSample(debugEntry.acceptedSamples, { imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, width, height, confirmedBy }, 6);
+    addDebugSample(debugEntry.acceptedSamples, { imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, width, height, confirmedBy, metadata: String(raw.metadata || "").slice(0, 220) }, 8);
     seen.add(key);
     if (results.length >= limit * 2) break;
   }
