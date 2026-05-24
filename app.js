@@ -56,12 +56,12 @@ const els = {
   jetphotos: document.querySelector("#jetphotos-link"),
   airhistory: document.querySelector("#airhistory-link"),
   source: document.querySelector("#source-link"),
-  apiKey: document.querySelector("#api-key"),
   model: document.querySelector("#model"),
-  imageUrl: document.querySelector("#image-url"),
-  imageFile: document.querySelector("#image-file"),
   context: document.querySelector("#context"),
   aiForm: document.querySelector("#ai-form"),
+  imageGrid: document.querySelector("#image-grid"),
+  imageStatus: document.querySelector("#image-status"),
+  findImages: document.querySelector("#find-images"),
   output: document.querySelector("#ai-output"),
   paintLine: document.querySelector("#paint-line"),
   markings: document.querySelector("#markings"),
@@ -73,7 +73,7 @@ const els = {
 
 let selected = aircraft[0];
 const notes = JSON.parse(localStorage.getItem("mc130j-notes") || "{}");
-els.apiKey.value = localStorage.getItem("openai-api-key") || "";
+const imageCache = JSON.parse(localStorage.getItem("mc130j-image-cache") || "{}");
 els.total.textContent = aircraft.length;
 
 function searchQuery(item) {
@@ -108,6 +108,7 @@ function selectAircraft(item) {
   els.title.textContent = item.serial;
   renderTags(item);
   updateLinks(item);
+  renderImages(item.serial);
   const note = notes[item.serial] || {};
   els.paintLine.value = note.paintLine || "";
   els.markings.value = note.markings || "";
@@ -147,64 +148,89 @@ function renderList() {
   else selectAircraft(selected);
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+function selectedImageUrls() {
+  return Array.from(els.imageGrid.querySelectorAll("input[type='checkbox']:checked"))
+    .map((input) => {
+      const image = imageCache[selected.serial]?.[Number(input.value)];
+      return image ? { url: image.url, source: image.source, query: image.query } : null;
+    })
+    .filter(Boolean);
+}
+
+function renderImages(serial) {
+  const images = imageCache[serial] || [];
+  els.imageGrid.innerHTML = "";
+
+  if (images.length === 0) {
+    els.imageStatus.textContent = "No images loaded.";
+    return;
+  }
+
+  els.imageStatus.textContent = `${images.length} images loaded.`;
+  images.forEach((image, index) => {
+    const article = document.createElement("article");
+    article.className = "image-card";
+    article.innerHTML = `
+      <img src="${image.url}" alt="${serial} candidate image ${index + 1}" loading="lazy" referrerpolicy="no-referrer">
+      <footer>
+        <label><input type="checkbox" value="${index}" checked> Include in AI comparison</label>
+        <a href="${image.url}" target="_blank" rel="noreferrer">Open image</a>
+      </footer>
+    `;
+    article.querySelector("img").addEventListener("error", () => {
+      article.classList.add("broken");
+      article.querySelector("img").alt = "Image could not be displayed";
+    });
+    els.imageGrid.appendChild(article);
   });
 }
 
-async function getImageInput() {
-  if (els.imageFile.files[0]) return fileToDataUrl(els.imageFile.files[0]);
-  if (els.imageUrl.value.trim()) return els.imageUrl.value.trim();
-  throw new Error("Add an image URL or choose a local image file first.");
+async function findImages() {
+  els.imageStatus.textContent = `Searching images for ${selected.serial}...`;
+  els.output.textContent = "Finding candidate images...";
+  const params = new URLSearchParams({
+    serial: selected.serial,
+    local: selected.local || "",
+    limit: "10"
+  });
+  const response = await fetch(`/api/images?${params}`);
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Image search failed.");
+  }
+  imageCache[selected.serial] = data.images || [];
+  localStorage.setItem("mc130j-image-cache", JSON.stringify(imageCache));
+  renderImages(selected.serial);
+  els.output.textContent = imageCache[selected.serial].length
+    ? `Found ${imageCache[selected.serial].length} candidate images for ${selected.serial}.`
+    : `No candidate images found for ${selected.serial}. Try the manual image links above.`;
 }
 
 async function analyzeImage(event) {
   event.preventDefault();
-  const key = els.apiKey.value.trim();
-  if (!key) {
-    els.output.textContent = "Add an OpenAI API key first.";
+  const images = selectedImageUrls();
+  if (images.length === 0) {
+    els.output.textContent = "Find images first, then leave at least one image selected.";
     return;
   }
-  localStorage.setItem("openai-api-key", key);
-  els.output.textContent = "Analyzing image...";
-  const image = await getImageInput();
-  const prompt = [
-    `You are helping identify a USAF MC-130J. Candidate serial: ${selected.serial}.`,
-    `Known local/tail marking from source row: ${selected.local || "unknown"}.`,
-    "Inspect only visible details. Report uncertainty clearly.",
-    "Look for: tail/nose serial traces, unit markings, aerial refueling pods, sensor fairings, antennas, weathering, repairs, and the dark grey vs light grey boundary on fuselage and wing fuel tanks.",
-    "Return concise JSON with keys: candidate_serial, visible_serials, confidence_0_100, fuselage_paint_line, tank_paint_line, distinctive_markings, supports_candidate, contradicts_candidate, next_image_angle_needed.",
-    els.context.value.trim() ? `User context: ${els.context.value.trim()}` : ""
-  ].filter(Boolean).join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  els.output.textContent = `Analyzing ${images.length} image${images.length === 1 ? "" : "s"} with Groq...`;
+  const response = await fetch("/api/analyze", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${key}`
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: els.model.value.trim() || "gpt-4.1-mini",
-      input: [{
-        role: "user",
-        content: [
-          { type: "input_text", text: prompt },
-          { type: "input_image", image_url: image }
-        ]
-      }]
+      aircraft: selected,
+      images,
+      context: els.context.value.trim(),
+      model: els.model.value.trim()
     })
   });
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error?.message || "OpenAI request failed.");
+    throw new Error(data.error || "Groq analysis failed.");
   }
-  const text = data.output_text || data.output?.flatMap((item) => item.content || []).map((part) => part.text).filter(Boolean).join("\n") || JSON.stringify(data, null, 2);
-  els.output.textContent = text;
+  els.output.textContent = data.report || JSON.stringify(data, null, 2);
 }
 
 function saveObservation() {
@@ -231,6 +257,10 @@ function exportNotes() {
 
 els.search.addEventListener("input", renderList);
 els.filter.addEventListener("change", renderList);
+els.findImages.addEventListener("click", () => findImages().catch((error) => {
+  els.imageStatus.textContent = "Image search failed.";
+  els.output.textContent = error.message;
+}));
 els.aiForm.addEventListener("submit", (event) => analyzeImage(event).catch((error) => {
   els.output.textContent = error.message;
 }));

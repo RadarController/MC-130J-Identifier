@@ -33,8 +33,8 @@
           </select>
         </label>
         <label>
-          <span>AI model</span>
-          <input id="model" type="text" value="gpt-4.1-mini">
+          <span>Groq model</span>
+          <input id="model" type="text" value="meta-llama/llama-4-scout-17b-16e-instruct">
         </label>
         <button id="export-json" type="button">Export notes</button>
       </section>
@@ -65,28 +65,27 @@
             <a id="source-link" target="_blank" rel="noreferrer">Source page</a>
           </div>
 
+          <section class="image-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Candidate images</h3>
+                <span id="image-status">No images loaded.</span>
+              </div>
+              <button id="find-images" type="button">Find 6-10 images</button>
+            </div>
+            <div id="image-grid" class="image-grid"></div>
+          </section>
+
           <div class="grid-two">
             <form id="ai-form" class="analysis-box">
-              <h3>AI marking check</h3>
-              <label>
-                <span>OpenAI API key</span>
-                <input id="api-key" type="password" autocomplete="off" placeholder="sk-...">
-              </label>
-              <label>
-                <span>Image URL</span>
-                <input id="image-url" type="url" placeholder="https://...jpg">
-              </label>
-              <label>
-                <span>Or choose image file</span>
-                <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
-              </label>
+              <h3>Groq marking comparison</h3>
               <label>
                 <span>Extra context</span>
                 <textarea id="context" rows="4" placeholder="Photo date, location, suspected serial, visible tail/nose details"></textarea>
               </label>
-              <button id="run-ai" type="submit">Analyze image</button>
+              <button id="run-ai" type="submit">Analyze displayed images</button>
               <p class="fine-print">
-                The API key is kept in this browser only. Image URLs or selected image files are sent to OpenAI when analysis runs.
+                Groq runs server-side using the Railway `GROQ_API_KEY` variable. Groq vision accepts up to 5 images per request, so larger sets are analyzed in batches and synthesized.
               </p>
             </form>
 
