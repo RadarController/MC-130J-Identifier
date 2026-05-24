@@ -10,6 +10,13 @@
     return meta ? `${serial} — ${meta.replace(/\s*\|\s*/g, ' • ')}` : serial;
   };
 
+  const getEscapedSerialSelector = (serial) => {
+    if (window.CSS && typeof CSS.escape === 'function') {
+      return `.serial-item[data-serial="${CSS.escape(serial)}"]`;
+    }
+    return `.serial-item[data-serial="${String(serial).replace(/"/g, '\\"')}"]`;
+  };
+
   const syncSerialDropdown = () => {
     const buttons = Array.from(serialList.querySelectorAll('.serial-item'));
     const activeSerial = buttons.find((button) => button.classList.contains('active'))?.dataset.serial;
@@ -31,8 +38,7 @@
   };
 
   serialSelect.addEventListener('change', () => {
-    const escaped = window.CSS && CSS.escape ? CSS.escape(serialSelect.value) : serialSelect.value.replace(/"/g, '\\"');
-    const button = serialList.querySelector(`.serial-item[data-serial="${escaped}"]`);
+    const button = serialList.querySelector(getEscapedSerialSelector(serialSelect.value));
     if (button) button.click();
   });
 
