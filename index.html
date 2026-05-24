@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MC-130J Identifier</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">USAF special operations Hercules research board</p>
+        <h1>MC-130J Identifier</h1>
+      </div>
+      <div class="source-note">
+        <strong id="total-count">0</strong>
+        <span>serial records</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="toolbar" aria-label="Search and filters">
+        <label class="searchbox">
+          <span>Search</span>
+          <input id="search" type="search" placeholder="Serial, T/V, delivery date">
+        </label>
+        <label>
+          <span>Record set</span>
+          <select id="record-filter">
+            <option value="all">All source records</option>
+            <option value="production">Production-list core</option>
+            <option value="newer">Newer C-130.net candidates</option>
+          </select>
+        </label>
+        <label>
+          <span>AI model</span>
+          <input id="model" type="text" value="gpt-4.1-mini">
+        </label>
+        <button id="export-json" type="button">Export notes</button>
+      </section>
+
+      <section class="workspace">
+        <aside class="aircraft-panel">
+          <div class="panel-head">
+            <h2>Serials</h2>
+            <span id="visible-count">0 shown</span>
+          </div>
+          <div id="serial-list" class="serial-list" role="list"></div>
+        </aside>
+
+        <section class="detail-panel" aria-live="polite">
+          <div class="selected-head">
+            <div>
+              <p class="eyebrow">Selected aircraft</p>
+              <h2 id="selected-title">Select a serial</h2>
+            </div>
+            <div id="selected-tags" class="tags"></div>
+          </div>
+
+          <div class="actions">
+            <a id="google-link" target="_blank" rel="noreferrer">Google Images</a>
+            <a id="bing-link" target="_blank" rel="noreferrer">Bing Images</a>
+            <a id="jetphotos-link" target="_blank" rel="noreferrer">JetPhotos</a>
+            <a id="airhistory-link" target="_blank" rel="noreferrer">AirHistory</a>
+            <a id="source-link" target="_blank" rel="noreferrer">Source page</a>
+          </div>
+
+          <div class="grid-two">
+            <form id="ai-form" class="analysis-box">
+              <h3>AI marking check</h3>
+              <label>
+                <span>OpenAI API key</span>
+                <input id="api-key" type="password" autocomplete="off" placeholder="sk-...">
+              </label>
+              <label>
+                <span>Image URL</span>
+                <input id="image-url" type="url" placeholder="https://...jpg">
+              </label>
+              <label>
+                <span>Or choose image file</span>
+                <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+              </label>
+              <label>
+                <span>Extra context</span>
+                <textarea id="context" rows="4" placeholder="Photo date, location, suspected serial, visible tail/nose details"></textarea>
+              </label>
+              <button id="run-ai" type="submit">Analyze image</button>
+              <p class="fine-print">
+                The API key is kept in this browser only. Image URLs or selected image files are sent to OpenAI when analysis runs.
+              </p>
+            </form>
+
+            <section class="analysis-box">
+              <h3>Manual observations</h3>
+              <label>
+                <span>Paint demarcation</span>
+                <select id="paint-line">
+                  <option value="">Unrecorded</option>
+                  <option>High fuselage line</option>
+                  <option>Low fuselage line</option>
+                  <option>Stepped near ramp</option>
+                  <option>Different on tanks</option>
+                  <option>Mostly uniform dark grey</option>
+                </select>
+              </label>
+              <label>
+                <span>Unique markings</span>
+                <textarea id="markings" rows="5" placeholder="Sensor fairings, tail code traces, pod/tank paint split, antenna fit, patches, repairs"></textarea>
+              </label>
+              <label>
+                <span>Confidence</span>
+                <input id="confidence" type="range" min="0" max="100" value="0">
+              </label>
+              <button id="save-note" type="button">Save observation</button>
+            </section>
+          </div>
+
+          <section class="result-panel">
+            <div class="panel-head">
+              <h3>Analysis result</h3>
+              <button id="clear-result" type="button">Clear</button>
+            </div>
+            <pre id="ai-output">No analysis yet.</pre>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

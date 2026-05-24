@@ -1,0 +1,13 @@
+{
+  "name": "mc130j-identifier",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small web app for researching USAF MC-130J serials, image matches, and visible marking differences.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

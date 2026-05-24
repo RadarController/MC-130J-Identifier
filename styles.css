@@ -1,0 +1,305 @@
+:root {
+  --bg: #f4f5f1;
+  --ink: #181b1f;
+  --muted: #657079;
+  --panel: #ffffff;
+  --line: #d6d9d2;
+  --dark: #26313a;
+  --accent: #2f6f73;
+  --warn: #9a6a1f;
+  --soft: #e8ede8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.topbar {
+  min-height: 138px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 26px clamp(18px, 3vw, 42px);
+  background:
+    linear-gradient(90deg, rgba(24, 27, 31, 0.88), rgba(38, 49, 58, 0.78)),
+    url("https://upload.wikimedia.org/wikipedia/commons/9/9c/MC-130J_Commando_II_%283109496%29.jpeg");
+  background-size: cover;
+  background-position: center 45%;
+  color: #fff;
+}
+
+.topbar h1,
+.selected-head h2,
+.panel-head h2,
+.analysis-box h3,
+.result-panel h3 {
+  margin: 0;
+}
+
+.topbar h1 {
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  line-height: 0.95;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: inherit;
+  opacity: 0.78;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+}
+
+.source-note {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  padding-bottom: 8px;
+}
+
+.source-note strong {
+  font-size: 2.6rem;
+}
+
+.layout {
+  padding: 18px clamp(14px, 2.5vw, 32px) 32px;
+}
+
+.toolbar,
+.workspace,
+.detail-panel,
+.analysis-box,
+.result-panel,
+.aircraft-panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: 1.4fr 210px 190px auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: #fff;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.4;
+}
+
+button,
+.actions a {
+  min-height: 38px;
+  border: 1px solid var(--dark);
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: #fff;
+  background: var(--dark);
+  text-decoration: none;
+  cursor: pointer;
+  text-align: center;
+}
+
+button:hover,
+.actions a:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.workspace {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) 1fr;
+  min-height: calc(100vh - 240px);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.aircraft-panel {
+  border-width: 0 1px 0 0;
+  border-radius: 0;
+  min-width: 0;
+}
+
+.panel-head,
+.selected-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-head span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.serial-list {
+  height: calc(100vh - 302px);
+  min-height: 460px;
+  overflow: auto;
+}
+
+.serial-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: #fff;
+  text-align: left;
+}
+
+.serial-item:hover,
+.serial-item.active {
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.serial-item strong {
+  font-size: 1rem;
+}
+
+.serial-item small {
+  color: var(--muted);
+}
+
+.badge {
+  align-self: start;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #dce9e5;
+  color: #194e4d;
+  font-size: 0.72rem;
+}
+
+.badge.warning {
+  background: #f2e6ce;
+  color: var(--warn);
+}
+
+.detail-panel {
+  border-width: 0;
+  border-radius: 0;
+  min-width: 0;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(112px, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 16px;
+}
+
+.analysis-box {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.fine-print {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.result-panel {
+  margin: 0 16px 16px;
+  border-radius: 8px;
+}
+
+#ai-output {
+  min-height: 180px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+@media (max-width: 920px) {
+  .toolbar,
+  .workspace,
+  .grid-two,
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .serial-list {
+    height: auto;
+    min-height: 0;
+    max-height: 380px;
+  }
+
+  .aircraft-panel {
+    border-width: 0 0 1px;
+  }
+
+  .topbar {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .source-note {
+    justify-items: start;
+  }
+}
