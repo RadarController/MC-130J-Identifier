@@ -239,6 +239,11 @@ function formatImageSearchDebug(debug) {
   lines.push("Image search diagnostics");
   lines.push(`Final images: ${debug.final?.count || 0} (${sourceSummary})`);
   lines.push(`C-130.net: found ${debug.c130Net?.found || 0}, accepted ${(debug.c130Net?.acceptedInitial || 0) + (debug.c130Net?.acceptedTopUp || 0)}`);
+  const c130RejectedText = Object.entries(debug.c130Net?.rejected || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${reason}: ${count}`)
+    .join(", ");
+  if (c130RejectedText) lines.push(`C-130.net rejections: ${c130RejectedText}`);
 
   const bingRaw = (debug.bingImages || []).reduce((sum, item) => sum + (item.rawResults || 0), 0);
   const bingAccepted = (debug.bingImages || []).reduce((sum, item) => sum + (item.accepted || 0), 0);
@@ -255,6 +260,12 @@ function formatImageSearchDebug(debug) {
     .map(([reason, count]) => `${reason}: ${count}`)
     .join(", ");
   if (rejectionText) lines.push(`Bing rejections: ${rejectionText}`);
+
+  const sampleRejected = (debug.bingImages || [])
+    .flatMap((item) => item.rejectedSamples || [])
+    .slice(0, 3)
+    .map((sample) => `${sample.reason}: ${sample.pageUrl || sample.imageUrl || "unknown"}`);
+  if (sampleRejected.length) lines.push(`Sample rejected Bing items: ${sampleRejected.join(" | ")}`);
 
   const pageCount = (debug.bingPages || []).reduce((sum, item) => sum + (item.pages || 0), 0);
   const pageAccepted = (debug.bingPages || []).reduce((sum, item) => sum + (item.accepted || 0), 0);

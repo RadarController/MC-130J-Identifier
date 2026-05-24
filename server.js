@@ -666,23 +666,45 @@ async function validateImageCandidate(url, options = {}) {
 
 function c130LinkedImagePairs(detailHtml, detailUrl) {
   const pairs = [];
-  const linkedPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>\s*<img[^>]+src=["']([^"']+)["'][^>]*>/gis;
+  const addPair = (href, src, context) => {
+    const cleanedHref = normalizeImageUrl(absolutizeUrl(href || "", detailUrl));
+    const cleanedSrc = normalizeImageUrl(absolutizeUrl(src || "", detailUrl));
+    if (!cleanedSrc && !cleanedHref) return;
+    pairs.push({ href: cleanedHref, src: cleanedSrc, context: String(context || "") });
+  };
+
+  const linkedPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>[\s\S]{0,1800}?<img[^>]+src=["']([^"']+)["'][^>]*>[\s\S]{0,1800}?(?:<\/a>|$)/gi;
   for (const match of detailHtml.matchAll(linkedPattern)) {
-    pairs.push({ href: normalizeImageUrl(absolutizeUrl(match[1], detailUrl)), src: normalizeImageUrl(absolutizeUrl(match[2], detailUrl)) });
+    const start = Math.max(0, (match.index || 0) - 600);
+    const end = Math.min(detailHtml.length, (match.index || 0) + match[0].length + 600);
+    addPair(match[1], match[2], detailHtml.slice(start, end));
   }
 
   for (const match of detailHtml.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
-    pairs.push({ href: "", src: normalizeImageUrl(absolutizeUrl(match[1], detailUrl)) });
+    const start = Math.max(0, (match.index || 0) - 600);
+    const end = Math.min(detailHtml.length, (match.index || 0) + match[0].length + 600);
+    addPair("", match[1], detailHtml.slice(start, end));
   }
 
-  return pairs;
+  const seen = new Set();
+  return pairs.filter((pair) => {
+    const key = `${pair.href}|${pair.src}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
-async function c130ImageCandidatesFromPhotoPage(photoPageUrl, detailUrl) {
-  if (!photoPageUrl || !photoPageUrl.includes("c-130.net") || isDirectImageUrl(photoPageUrl)) return [];
-  const html = await fetchText(photoPageUrl);
-  if (!html) return [];
+async function c130PhotoPageData(photoPageUrl, detailUrl, serial, local) {
+  if (!photoPageUrl || !photoPageUrl.includes("c-130.net") || isDirectImageUrl(photoPageUrl)) {
+    return { confirmed: false, candidates: [], reason: "not_photo_page" };
+  }
 
+  const html = await fetchText(photoPageUrl);
+  if (!html) return { confirmed: false, candidates: [], reason: "photo_page_fetch_failed" };
+
+  const evidence = `${photoPageUrl} ${html}`;
+  const confirmed = identityIsConfirmed(evidence, serial, local) && likelyMc130Context(evidence);
   const candidates = [];
   const add = (raw) => {
     const url = normalizeImageUrl(absolutizeUrl(raw, photoPageUrl));
@@ -697,64 +719,131 @@ async function c130ImageCandidatesFromPhotoPage(photoPageUrl, detailUrl) {
     for (const match of html.matchAll(pattern)) add(match[1]);
   }
 
-  for (const match of html.matchAll(/<a[^>]+href=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) {
-    add(match[1]);
-  }
-  for (const match of html.matchAll(/<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) {
-    add(match[1]);
-  }
+  for (const match of html.matchAll(/<a[^>]+href=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) add(match[1]);
+  for (const match of html.matchAll(/<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) add(match[1]);
 
-  // Keep the original detail page as a base for relative Gallery3 URLs if the photo page used them.
-  return [...new Set(candidates.map((candidate) => absolutizeUrl(candidate, detailUrl) || candidate))];
+  return {
+    confirmed,
+    reason: confirmed ? "photo_page_identity_confirmed" : "photo_page_identity_not_confirmed",
+    candidates: [...new Set(candidates.map((candidate) => absolutizeUrl(candidate, detailUrl) || candidate))]
+  };
 }
 
-async function fetchC130NetImages(serial, local, sourcePage, limit) {
+function addDebugSample(list, item, limit = 8) {
+  if (!Array.isArray(list) || list.length >= limit) return;
+  list.push(item);
+}
+
+async function fetchC130NetImages(serial, local, sourcePage, limit, debug) {
   if (!sourcePage || !sourcePage.includes("c-130.net")) return [];
 
+  const c130Debug = debug?.c130Net;
+  if (c130Debug) c130Debug.attempted = true;
+
   const sourceHtml = await fetchText(sourcePage);
-  if (!sourceHtml) return [];
+  if (!sourceHtml) {
+    c130Debug?.errors?.push("source_page_fetch_failed");
+    return [];
+  }
 
   const rowIndex = sourceHtml.indexOf(serial);
-  if (rowIndex === -1) return [];
+  if (rowIndex === -1) {
+    c130Debug?.errors?.push("serial_not_found_on_source_page");
+    return [];
+  }
 
   const row = sourceHtml.slice(Math.max(0, rowIndex - 500), rowIndex + 3000);
   const detailMatch = row.match(/href=["']([^"']*display_airframe[^"']*id=\d+[^"']*)["']/i);
-  if (!detailMatch) return [];
+  if (!detailMatch) {
+    c130Debug?.errors?.push("airframe_detail_link_not_found");
+    return [];
+  }
 
   const detailUrl = normalizeImageUrl(absolutizeUrl(detailMatch[1], sourcePage)).replace(/\s+/g, "");
   const detailHtml = await fetchText(detailUrl);
-  if (!detailHtml) return [];
+  if (!detailHtml) {
+    c130Debug?.errors?.push("airframe_detail_fetch_failed");
+    return [];
+  }
 
   const detailText = detailHtml.toLowerCase();
   if (!identityIsConfirmed(detailText, serial, local)) {
+    c130Debug?.errors?.push("airframe_detail_identity_not_confirmed");
     return [];
   }
 
   const images = [];
   const seen = new Set();
   const identityText = `${serial} ${local || ""}`.trim();
+  const photoPageCache = new Map();
 
   for (const pair of c130LinkedImagePairs(detailHtml, detailUrl)) {
+    const pairEvidence = `${pair.href} ${pair.src} ${pair.context}`;
+    const pairContextConfirmed = identityIsConfirmed(pairEvidence, serial, local) && likelyMc130Context(pairEvidence);
+
+    let photoData = { confirmed: false, candidates: [], reason: "no_photo_page" };
+    if (pair.href && !isDirectImageUrl(pair.href)) {
+      const pageKey = pair.href.split("?")[0].toLowerCase();
+      if (!photoPageCache.has(pageKey)) {
+        photoPageCache.set(pageKey, await c130PhotoPageData(pair.href, detailUrl, serial, local).catch((error) => ({
+          confirmed: false,
+          candidates: [],
+          reason: error.message || "photo_page_error"
+        })));
+      }
+      photoData = photoPageCache.get(pageKey);
+    }
+
+    if (!pairContextConfirmed && !photoData.confirmed) {
+      debugCounter(c130Debug?.rejected, "image_not_serial_specific");
+      addDebugSample(c130Debug?.rejectedSamples, {
+        reason: "image_not_serial_specific",
+        href: pair.href,
+        src: pair.src,
+        photoPageReason: photoData.reason
+      });
+      continue;
+    }
+
     const possibleUrls = [
       ...c130CandidateImageUrls(pair.src, pair.href),
-      ...(await c130ImageCandidatesFromPhotoPage(pair.href, detailUrl).catch(() => []))
+      ...photoData.candidates
     ];
 
     for (const candidate of possibleUrls) {
       const key = candidate.split("?")[0].toLowerCase();
-      if (seen.has(key) || /\/g3\/var\/thumbs\//i.test(candidate)) continue;
-      if (!isC130GalleryImageUrl(candidate) || isLikelySiteBrandingImage(candidate)) continue;
+      if (seen.has(key) || /\/g3\/var\/thumbs\//i.test(candidate)) {
+        debugCounter(c130Debug?.rejected, "duplicate_or_thumbnail");
+        continue;
+      }
+      if (!isC130GalleryImageUrl(candidate) || isLikelySiteBrandingImage(candidate)) {
+        debugCounter(c130Debug?.rejected, "not_gallery_aircraft_image");
+        addDebugSample(c130Debug?.rejectedSamples, { reason: "not_gallery_aircraft_image", url: candidate });
+        continue;
+      }
       const metadata = await validateImageCandidate(candidate, { rejectBranding: true });
-      if (!metadata) continue;
+      if (!metadata) {
+        debugCounter(c130Debug?.rejected, "image_validation_failed");
+        addDebugSample(c130Debug?.rejectedSamples, { reason: "image_validation_failed", url: candidate });
+        continue;
+      }
       seen.add(key);
-      images.push({
+      const accepted = {
         ...metadata,
         thumbnailUrl: pair.src || undefined,
-        pageUrl: detailUrl,
+        pageUrl: photoData.confirmed ? pair.href : detailUrl,
         source: "C-130.net",
         query: identityText,
         identityConfirmed: true,
-        identityConfirmedBy: "C-130.net serial detail page"
+        identityConfirmedBy: photoData.confirmed ? "C-130.net photo page contains exact serial/local marking" : "C-130.net image context contains exact serial/local marking"
+      };
+      images.push(accepted);
+      addDebugSample(c130Debug?.acceptedSamples, {
+        url: accepted.url,
+        pageUrl: accepted.pageUrl,
+        width: accepted.width,
+        height: accepted.height,
+        confirmedBy: accepted.identityConfirmedBy
       });
       break;
     }
@@ -762,9 +851,9 @@ async function fetchC130NetImages(serial, local, sourcePage, limit) {
     if (images.length >= limit) break;
   }
 
+  if (c130Debug) c130Debug.found = images.length;
   return images;
 }
-
 
 function createImageSearchDebug(serial, local, limit, refresh) {
   return {
@@ -773,7 +862,16 @@ function createImageSearchDebug(serial, local, limit, refresh) {
     limit,
     refresh,
     startedAt: new Date().toISOString(),
-    c130Net: { attempted: false, found: 0, acceptedInitial: 0, acceptedTopUp: 0, errors: [] },
+    c130Net: {
+      attempted: false,
+      found: 0,
+      acceptedInitial: 0,
+      acceptedTopUp: 0,
+      rejected: {},
+      acceptedSamples: [],
+      rejectedSamples: [],
+      errors: []
+    },
     bingImages: [],
     bingPages: [],
     final: { count: 0, sources: {} }
@@ -835,7 +933,10 @@ async function fetchBingImages(query, serial, local, limit, debug) {
     rejected: {},
     pageChecks: 0,
     pageConfirmed: 0,
-    error: ""
+    error: "",
+    acceptedSamples: [],
+    rejectedSamples: [],
+    rawSamples: []
   };
   debug?.bingImages?.push(debugEntry);
 
@@ -868,6 +969,7 @@ async function fetchBingImages(query, serial, local, limit, debug) {
     }
     rawSeen.add(key);
     rawResults.push({ imageUrl, metadata, width, height, pageUrl });
+    addDebugSample(debugEntry.rawSamples, { imageUrl, pageUrl, metadata: String(metadata || "").slice(0, 180), width, height }, 6);
   };
 
   for (const match of html.matchAll(/m=(?:&quot;|")({.*?})(?:&quot;|")/g)) {
@@ -933,16 +1035,19 @@ async function fetchBingImages(query, serial, local, limit, debug) {
 
     if (!confirmed) {
       debugCounter(debugEntry.rejected, "serial_or_local_not_confirmed");
+      addDebugSample(debugEntry.rejectedSamples, { reason: "serial_or_local_not_confirmed", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 180) });
       continue;
     }
     if (!likelyMc130Context(contextEvidence)) {
       debugCounter(debugEntry.rejected, "no_mc130_or_c130_context");
+      addDebugSample(debugEntry.rejectedSamples, { reason: "no_mc130_or_c130_context", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 180) });
       continue;
     }
 
     const validated = await validateImageCandidate(raw.imageUrl, { enforceAllowedHosts: false, rejectBranding: true });
     if (!validated) {
       debugCounter(debugEntry.rejected, "image_validation_failed");
+      addDebugSample(debugEntry.rejectedSamples, { reason: "image_validation_failed", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 180) });
       continue;
     }
 
@@ -963,11 +1068,43 @@ async function fetchBingImages(query, serial, local, limit, debug) {
       identityConfirmedBy: confirmedBy
     });
     debugEntry.accepted += 1;
+    addDebugSample(debugEntry.acceptedSamples, { imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, width, height, confirmedBy }, 6);
     seen.add(key);
     if (results.length >= limit * 2) break;
   }
 
   return sortedImages(results).slice(0, limit);
+}
+
+function decodeBase64Url(value) {
+  try {
+    const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "===".slice((normalized.length + 3) % 4);
+    return Buffer.from(padded, "base64").toString("utf8");
+  } catch (error) {
+    return "";
+  }
+}
+
+function decodeBingResultUrl(rawHref, baseUrl = "https://www.bing.com") {
+  try {
+    const absolute = new URL(normalizeImageUrl(rawHref), baseUrl);
+    if (!/(^|\.)bing\.com$/i.test(absolute.hostname)) return absolute.href;
+
+    const u = absolute.searchParams.get("u") || absolute.searchParams.get("r") || "";
+    if (u) {
+      if (/^https?:\/\//i.test(u)) return u;
+      const stripped = u.replace(/^a1/i, "");
+      const decoded = decodeBase64Url(stripped) || decodeBase64Url(u);
+      if (/^https?:\/\//i.test(decoded)) return decoded;
+    }
+
+    const urlParam = absolute.searchParams.get("url");
+    if (urlParam && /^https?:\/\//i.test(urlParam)) return urlParam;
+    return "";
+  } catch (error) {
+    return "";
+  }
 }
 
 async function fetchBingPages(query, limit, debug) {
@@ -978,7 +1115,7 @@ async function fetchBingPages(query, limit, debug) {
       "accept-language": "en-US,en;q=0.9"
     }
   });
-  const debugEntry = { query, url, pages: 0, accepted: 0, errors: [] };
+  const debugEntry = { query, url, pages: 0, accepted: 0, rejected: {}, samples: [], errors: [] };
   debug?.bingPages?.push(debugEntry);
   if (!response.ok) {
     debugEntry.errors.push(`HTTP ${response.status}`);
@@ -988,12 +1125,25 @@ async function fetchBingPages(query, limit, debug) {
   const html = await response.text();
   const pages = [];
   const seen = new Set();
-  for (const match of html.matchAll(/<a[^>]+href="(https?:\/\/[^"#]+)"/g)) {
-    const pageUrl = normalizeImageUrl(match[1]);
+  for (const match of html.matchAll(/href=["']([^"']+)["']/gi)) {
+    const decoded = decodeBingResultUrl(match[1], url);
+    if (!decoded) {
+      debugCounter(debugEntry.rejected, "undecodable_bing_href");
+      continue;
+    }
+    const pageUrl = normalizeImageUrl(decoded);
     const key = pageUrl.split("?")[0].toLowerCase();
-    if (seen.has(key) || !isCandidateSourcePageUrl(pageUrl)) continue;
+    if (seen.has(key)) {
+      debugCounter(debugEntry.rejected, "duplicate_page_url");
+      continue;
+    }
+    if (!isCandidateSourcePageUrl(pageUrl)) {
+      debugCounter(debugEntry.rejected, "not_candidate_source_page");
+      continue;
+    }
     seen.add(key);
     pages.push(pageUrl);
+    addDebugSample(debugEntry.samples, { pageUrl }, 6);
     debugEntry.pages = pages.length;
     if (pages.length >= limit) break;
   }
@@ -1029,6 +1179,10 @@ async function extractImagesFromPage(pageUrl, query, limit, serial, local, debug
     const pageEvidence = `${pageUrl} ${html}`;
     if (!identityIsConfirmed(pageEvidence, serial, local)) {
       debugEntry && debugCounter(debugEntry, "source_page_identity_not_confirmed");
+      return [];
+    }
+    if (!likelyMc130Context(pageEvidence)) {
+      debugEntry && debugCounter(debugEntry, "source_page_no_mc130_context");
       return [];
     }
 
@@ -1140,7 +1294,7 @@ async function handleImages(req, res) {
   const images = [];
   const seen = new Set();
   debug.c130Net.attempted = Boolean(sourcePage);
-  const c130Images = sortedImages(await fetchC130NetImages(serial, local, sourcePage, limit).catch((error) => {
+  const c130Images = sortedImages(await fetchC130NetImages(serial, local, sourcePage, limit, debug).catch((error) => {
     debug.c130Net.errors.push(error.message || "C-130.net search failed");
     return [];
   }));
