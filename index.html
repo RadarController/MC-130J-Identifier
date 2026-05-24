@@ -3,53 +3,52 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#071014">
     <title>MC-130J Identifier | StreamingATC.live</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div class="page-shell">
-      <header class="topbar">
-        <div class="topbar-overlay" aria-hidden="true"></div>
-        <div class="brand-row">
-          <a class="brand-mark" href="https://streamingatc.live/" target="_blank" rel="noreferrer" aria-label="Open StreamingATC.live">
-            <span class="brand-pulse"></span>
-            <span>
-              <strong>StreamingATC.live</strong>
-              <small>Research tooling</small>
-            </span>
-          </a>
-          <nav class="top-links" aria-label="External links">
-            <a href="https://streamingatc.live/" target="_blank" rel="noreferrer">Platform</a>
-            <a href="https://www.twitch.tv/radarcontroller" target="_blank" rel="noreferrer">RadarController</a>
-          </nav>
-        </div>
-
-        <div class="hero-grid">
-          <section class="hero-copy" aria-labelledby="page-title">
-            <p class="eyebrow">USAF special operations Hercules research board</p>
-            <h1 id="page-title">MC-130J Identifier</h1>
-            <p class="hero-lede">
-              A structured working board for comparing MC-130J serials, candidate imagery, local markings, and analyst observations.
-            </p>
-            <div class="hero-tags" aria-label="Tool capabilities">
-              <span>Serial intelligence</span>
-              <span>Image comparison</span>
-              <span>Manual notes</span>
-              <span>Groq-assisted review</span>
-            </div>
-          </section>
-
-          <aside class="source-note" aria-label="Loaded aircraft records">
-            <span class="source-note-label">Loaded records</span>
-            <strong id="total-count">0</strong>
-            <span>serial records</span>
-          </aside>
-        </div>
+    <div class="page-bg"></div>
+    <div class="grid-overlay"></div>
+    <div class="site-shell tool-shell">
+      <header class="site-header">
+        <a class="brand-lockup" href="https://streamingatc.live/" target="_blank" rel="noreferrer">
+          <span class="brand-mark"><span class="brand-dot"></span></span>
+          <span>
+            <span class="brand-name">StreamingATC.live</span>
+            <span class="brand-subtitle">MC-130J Identifier</span>
+          </span>
+        </a>
+        <nav class="site-nav">
+          <a href="https://streamingatc.live/" target="_blank" rel="noreferrer">Platform</a>
+          <a href="https://www.twitch.tv/radarcontroller" target="_blank" rel="noreferrer">RadarController</a>
+          <a class="button button-outline" href="#workspace">Start review</a>
+        </nav>
       </header>
 
-      <main class="layout">
-        <section class="toolbar" aria-label="Search and filters">
+      <main>
+        <section class="hero tool-hero">
+          <div>
+            <p class="eyebrow">USAF special operations Hercules research board</p>
+            <h1>MC-130J Identifier</h1>
+            <p>A structured working board for comparing MC-130J serials, candidate imagery, local markings, and analyst observations.</p>
+            <div class="hero-actions">
+              <a class="button button-solid" href="#workspace">Review aircraft</a>
+              <button id="export-json" type="button" class="button button-outline">Export notes</button>
+            </div>
+          </div>
+          <aside class="visual-card stat-card">
+            <div class="visual-card-top">
+              <span class="status-pill">Loaded records</span>
+              <span class="footer-chip">Serial intelligence</span>
+            </div>
+            <div class="stat-body">
+              <strong id="total-count">0</strong>
+              <span>serial records</span>
+            </div>
+          </aside>
+        </section>
+
+        <section class="toolbar panel-card" aria-label="Search and filters">
           <label class="searchbox">
             <span>Search</span>
             <input id="search" type="search" placeholder="Serial, T/V, delivery date">
@@ -66,14 +65,13 @@
             <span>Groq model</span>
             <input id="model" type="text" value="meta-llama/llama-4-scout-17b-16e-instruct">
           </label>
-          <button id="export-json" type="button">Export notes</button>
         </section>
 
-        <section class="workspace">
-          <aside class="aircraft-panel">
+        <section id="workspace" class="workspace">
+          <aside class="aircraft-panel panel-card">
             <div class="panel-head">
               <div>
-                <p class="micro-label">Registry</p>
+                <p class="mini-label">Registry</p>
                 <h2>Serials</h2>
               </div>
               <span id="visible-count">0 shown</span>
@@ -81,7 +79,7 @@
             <div id="serial-list" class="serial-list" role="list"></div>
           </aside>
 
-          <section class="detail-panel" aria-live="polite">
+          <section class="detail-panel panel-card" aria-live="polite">
             <div class="selected-head">
               <div>
                 <p class="eyebrow">Selected aircraft</p>
@@ -98,37 +96,35 @@
               <a id="source-link" target="_blank" rel="noreferrer">Source page</a>
             </div>
 
-            <section class="image-panel">
+            <section class="image-panel panel-card">
               <div class="panel-head">
                 <div>
-                  <p class="micro-label">Visual evidence</p>
+                  <p class="mini-label">Visual evidence</p>
                   <h3>Candidate images</h3>
                   <span id="image-status">No images loaded.</span>
                 </div>
-                <button id="find-images" type="button">Find 6-10 images</button>
+                <button id="find-images" type="button" class="button button-outline">Find 6-10 images</button>
               </div>
               <div id="image-grid" class="image-grid"></div>
             </section>
 
             <div class="grid-two">
-              <form id="ai-form" class="analysis-box">
+              <form id="ai-form" class="analysis-box panel-card">
                 <div>
-                  <p class="micro-label">AI assist</p>
+                  <p class="mini-label">AI assist</p>
                   <h3>Groq marking comparison</h3>
                 </div>
                 <label>
                   <span>Extra context</span>
                   <textarea id="context" rows="4" placeholder="Photo date, location, suspected serial, visible tail/nose details"></textarea>
                 </label>
-                <button id="run-ai" type="submit">Analyze displayed images</button>
-                <p class="fine-print">
-                  Groq runs server-side using the Railway `GROQ_API_KEY` variable. Groq vision accepts up to 5 images per request, so larger sets are analyzed in batches and synthesized.
-                </p>
+                <button id="run-ai" type="submit" class="button button-solid">Analyze displayed images</button>
+                <p class="fine-print">Groq runs server-side using the Railway `GROQ_API_KEY` variable. Groq vision accepts up to 5 images per request, so larger sets are analyzed in batches and synthesized.</p>
               </form>
 
-              <section class="analysis-box">
+              <section class="analysis-box panel-card">
                 <div>
-                  <p class="micro-label">Human review</p>
+                  <p class="mini-label">Human review</p>
                   <h3>Manual observations</h3>
                 </div>
                 <label>
@@ -150,17 +146,17 @@
                   <span>Confidence</span>
                   <input id="confidence" type="range" min="0" max="100" value="0">
                 </label>
-                <button id="save-note" type="button">Save observation</button>
+                <button id="save-note" type="button" class="button button-outline">Save observation</button>
               </section>
             </div>
 
-            <section class="result-panel">
+            <section class="result-panel panel-card">
               <div class="panel-head">
                 <div>
-                  <p class="micro-label">Output</p>
+                  <p class="mini-label">Output</p>
                   <h3>Analysis result</h3>
                 </div>
-                <button id="clear-result" type="button">Clear</button>
+                <button id="clear-result" type="button" class="button button-ghost">Clear</button>
               </div>
               <pre id="ai-output">No analysis yet.</pre>
             </section>
@@ -168,7 +164,6 @@
         </section>
       </main>
     </div>
-
     <script src="app.js"></script>
   </body>
 </html>
