@@ -872,6 +872,7 @@ function createImageSearchDebug(serial, local, limit, refresh) {
       rejectedSamples: [],
       errors: []
     },
+    sourceSearches: [],
     bingImages: [],
     bingPages: [],
     final: { count: 0, sources: {} }
@@ -884,6 +885,8 @@ function debugCounter(bucket, key, amount = 1) {
 }
 
 function summarizeImageSearchDebug(debug) {
+  const sourcePages = (debug.sourceSearches || []).reduce((sum, item) => sum + (item.pages || 0), 0);
+  const sourceAccepted = (debug.sourceSearches || []).reduce((sum, item) => sum + (item.accepted || 0), 0);
   const bingRaw = debug.bingImages.reduce((sum, item) => sum + (item.rawResults || 0), 0);
   const bingAccepted = debug.bingImages.reduce((sum, item) => sum + (item.accepted || 0), 0);
   const bingRejected = debug.bingImages.reduce((sum, item) => sum + Object.values(item.rejected || {}).reduce((a, b) => a + b, 0), 0);
@@ -894,6 +897,8 @@ function summarizeImageSearchDebug(debug) {
     local: debug.local,
     c130Found: debug.c130Net.found,
     c130Accepted: debug.c130Net.acceptedInitial + debug.c130Net.acceptedTopUp,
+    sourcePages,
+    sourceAccepted,
     bingRaw,
     bingAccepted,
     bingRejected,
@@ -910,6 +915,302 @@ function logImageSearchDebug(debug) {
   } catch (error) {
     console.log(`[image-search] ${debug.serial}: ${debug.final.count} images returned`);
   }
+}
+
+
+const preferredPhotoHosts = [
+  "jetphotos.com",
+  "cdn.jetphotos.com",
+  "airhistory.net",
+  "airport-data.com",
+  "planespotters.net",
+  "airplane-pictures.net",
+  "abpic.co.uk",
+  "airliners.net",
+  "flickr.com",
+  "staticflickr.com",
+  "af.mil",
+  "defense.gov",
+  "dvidshub.net",
+  "media.defense.gov",
+  "c-130.net"
+];
+
+function isPreferredPhotoHostUrl(url) {
+  const host = urlHost(url);
+  return Boolean(host) && preferredPhotoHosts.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function sourceNameForUrl(url, fallback = "Source") {
+  const host = urlHost(url);
+  if (host.includes("jetphotos.com")) return "JetPhotos";
+  if (host.includes("airhistory.net")) return "AirHistory";
+  if (host.includes("airport-data.com")) return "Airport-Data";
+  if (host.includes("planespotters.net")) return "Planespotters";
+  if (host.includes("airplane-pictures.net")) return "Airplane-Pictures";
+  if (host.includes("abpic.co.uk")) return "ABPic";
+  if (host.includes("airliners.net")) return "Airliners.net";
+  if (host.includes("flickr.com") || host.includes("staticflickr.com")) return "Flickr";
+  if (host.includes("af.mil")) return "USAF";
+  if (host.includes("defense.gov")) return "Defense.gov";
+  if (host.includes("dvidshub.net")) return "DVIDS";
+  if (host.includes("c-130.net")) return "C-130.net";
+  return fallback;
+}
+
+function isLikelySearchOrUtilityUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+    return /\/login|\/register|\/user|\/users|\/about|\/contact|\/privacy|\/terms|\/account|\/search($|\/)|\/tag\//i.test(path) ||
+      /facebook\.com|x\.com|twitter\.com|instagram\.com|pinterest\.com|youtube\.com|bing\.com|google\./i.test(parsed.hostname);
+  } catch (error) {
+    return true;
+  }
+}
+
+function sourceSearchUrls(serial, local) {
+  const terms = [serial, local].filter((value) => value && !/^unknown$/i.test(value));
+  const encoded = (value) => encodeURIComponent(value);
+  const urls = [];
+  const push = (source, query, url) => {
+    if (query && url && !urls.some((item) => item.url === url)) urls.push({ source, query, url });
+  };
+
+  for (const term of terms) {
+    push("JetPhotos", term, `https://www.jetphotos.com/photo/keyword/${encoded(term)}`);
+    push("AirHistory", term, `https://www.airhistory.net/search?keywords=${encoded(term)}`);
+    push("Airport-Data", term, `https://www.airport-data.com/search/search.html?search=${encoded(term)}`);
+    push("Planespotters", term, `https://www.planespotters.net/search?q=${encoded(term)}`);
+    push("Airplane-Pictures", term, `https://www.airplane-pictures.net/search.php?p=1&string=${encoded(term)}`);
+    push("ABPic", term, `https://abpic.co.uk/search.php?q=${encoded(term)}`);
+  }
+
+  push("JetPhotos", `${serial} MC-130J`, `https://www.jetphotos.com/photo/keyword/${encoded(`${serial} MC-130J`)}`);
+  if (local) push("JetPhotos", `${local} MC-130J`, `https://www.jetphotos.com/photo/keyword/${encoded(`${local} MC-130J`)}`);
+  push("AirHistory", `${serial} MC-130J`, `https://www.airhistory.net/search?keywords=${encoded(`${serial} MC-130J`)}`);
+  if (local) push("AirHistory", `${local} MC-130J`, `https://www.airhistory.net/search?keywords=${encoded(`${local} MC-130J`)}`);
+
+  return urls;
+}
+
+function imageCandidateUrlsForSource(rawUrl, pageUrl) {
+  const url = normalizeImageUrl(absolutizeUrl(rawUrl, pageUrl));
+  if (!url) return [];
+  const candidates = [url];
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.toLowerCase().includes("jetphotos.com")) {
+      for (const marker of ["/400/", "/640/", "/large/"]) {
+        if (parsed.pathname.includes(marker)) {
+          const full = new URL(parsed.href);
+          full.pathname = full.pathname.replace(marker, "/full/");
+          candidates.unshift(full.href);
+        }
+      }
+    }
+    if (parsed.hostname.toLowerCase().includes("staticflickr.com")) {
+      const flickrLarge = parsed.href.replace(/_[a-z](\.(?:jpg|jpeg|png|webp))(?:$|[?#])/i, "_b$1");
+      candidates.unshift(flickrLarge);
+    }
+  } catch (error) {
+    // Keep the original candidate only.
+  }
+
+  return [...new Set(candidates.map((candidate) => candidate.split("#")[0]))];
+}
+
+function collectImageRefsFromHtml(html, pageUrl) {
+  const refs = [];
+  const add = (raw, sourceTag = "", width = 0, height = 0) => {
+    for (const url of imageCandidateUrlsForSource(raw, pageUrl)) {
+      if (isDirectImageUrl(url)) refs.push({ url, sourceTag, width: Number(width || 0), height: Number(height || 0) });
+    }
+  };
+
+  const metaPatterns = [
+    /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*>/gi
+  ];
+  for (const pattern of metaPatterns) {
+    for (const match of html.matchAll(pattern)) add(match[1], match[0], 1024, 0);
+  }
+
+  for (const match of html.matchAll(/<img\b[^>]+>/gi)) {
+    const tag = match[0];
+    const raw = tagAttribute(tag, "src") || tagAttribute(tag, "data-src") || tagAttribute(tag, "data-original") || tagAttribute(tag, "data-lazy-src");
+    if (!raw) continue;
+    const width = Number(tagAttribute(tag, "width") || 0);
+    const height = Number(tagAttribute(tag, "height") || 0);
+    add(raw, tag, width, height);
+  }
+
+  for (const match of html.matchAll(/<a\b[^>]+href=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) {
+    add(match[1], match[0], 1024, 0);
+  }
+
+  const seen = new Set();
+  return refs.filter((ref) => {
+    const key = ref.url.split("?")[0].toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function collectSourcePageLinks(html, searchUrl, serial, local, sourceName) {
+  const links = [];
+  const seen = new Set();
+  const add = (href, context = "") => {
+    const pageUrl = normalizeImageUrl(absolutizeUrl(decodeHtmlEntities(href), searchUrl));
+    if (!pageUrl || seen.has(pageUrl.split("?")[0].toLowerCase())) return;
+    if (!isPreferredPhotoHostUrl(pageUrl) || isLikelySearchOrUtilityUrl(pageUrl)) return;
+    const host = urlHost(pageUrl);
+    const path = (() => { try { return new URL(pageUrl).pathname.toLowerCase(); } catch { return ""; } })();
+    const likelyPhotoPage = /jetphotos\.com/.test(host) ? /\/photo\//i.test(path)
+      : /airhistory\.net/.test(host) ? /\/photo\//i.test(path) || /\/aircraft\//i.test(path)
+      : /airport-data\.com/.test(host) ? /\/aircraft\//i.test(path) || /\/photoview\//i.test(path)
+      : /planespotters\.net/.test(host) ? /\/photo\//i.test(path) || /\/airframe\//i.test(path)
+      : /airplane-pictures\.net/.test(host) ? /\/photo\//i.test(path)
+      : /abpic\.co\.uk/.test(host) ? /\/pictures\//i.test(path)
+      : true;
+    if (!likelyPhotoPage && !identityIsConfirmed(`${pageUrl} ${context}`, serial, local)) return;
+    seen.add(pageUrl.split("?")[0].toLowerCase());
+    links.push({ pageUrl, context, sourceName: sourceNameForUrl(pageUrl, sourceName) });
+  };
+
+  for (const match of html.matchAll(/<a\b[^>]+href=["']([^"']+)["'][^>]*>/gi)) {
+    const index = match.index || 0;
+    const context = stripHtml(html.slice(Math.max(0, index - 600), Math.min(html.length, index + match[0].length + 600)));
+    add(match[1], context);
+  }
+
+  return links;
+}
+
+async function extractValidatedImagesFromKnownSource(pageUrl, sourceName, query, limit, serial, local, debugEntry) {
+  try {
+    const html = await fetchText(pageUrl);
+    if (!html) {
+      debugEntry?.errors?.push(`${pageUrl}: fetch_failed`);
+      return [];
+    }
+
+    const pageEvidence = `${pageUrl} ${html}`;
+    if (!identityIsConfirmed(pageEvidence, serial, local)) {
+      debugCounter(debugEntry?.rejected, "source_page_identity_not_confirmed");
+      addDebugSample(debugEntry?.rejectedSamples, { reason: "source_page_identity_not_confirmed", pageUrl }, 8);
+      return [];
+    }
+    if (!likelyMc130Context(pageEvidence)) {
+      debugCounter(debugEntry?.rejected, "source_page_no_mc130_context");
+      addDebugSample(debugEntry?.rejectedSamples, { reason: "source_page_no_mc130_context", pageUrl }, 8);
+      return [];
+    }
+
+    const refs = collectImageRefsFromHtml(html, pageUrl);
+    const results = [];
+    const seen = new Set();
+    for (const ref of refs) {
+      const key = ref.url.split("?")[0].toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!isUsefulImageUrl(ref.url, { enforceAllowedHosts: false }) || !isPreferredPhotoHostUrl(ref.url)) {
+        debugCounter(debugEntry?.rejected, "source_image_not_preferred_or_useful");
+        continue;
+      }
+      const validated = await validateImageCandidate(ref.url, { enforceAllowedHosts: false, rejectBranding: true });
+      if (!validated) {
+        debugCounter(debugEntry?.rejected, "source_image_validation_failed");
+        addDebugSample(debugEntry?.rejectedSamples, { reason: "source_image_validation_failed", url: ref.url, pageUrl }, 8);
+        continue;
+      }
+      const width = Number(ref.width || validated.width || 0) || undefined;
+      const height = Number(ref.height || validated.height || 0) || undefined;
+      const sizePreference = imageSizePreference(width, height);
+      const item = {
+        ...validated,
+        url: ref.url,
+        pageUrl,
+        source: sourceNameForUrl(pageUrl, sourceName),
+        query,
+        width,
+        height,
+        sizePreference,
+        preferredSize: sizePreference !== "small",
+        identityConfirmed: true,
+        identityConfirmedBy: `${sourceNameForUrl(pageUrl, sourceName)} source page contains exact serial/local marking`
+      };
+      results.push(item);
+      debugEntry && (debugEntry.accepted += 1);
+      addDebugSample(debugEntry?.acceptedSamples, { url: item.url, pageUrl, width, height, source: item.source }, 8);
+      if (results.length >= limit) break;
+    }
+    return sortedImages(results).slice(0, limit);
+  } catch (error) {
+    debugEntry?.errors?.push(`${pageUrl}: ${error.message || "extract_failed"}`);
+    return [];
+  }
+}
+
+async function fetchSourceFirstImages(serial, local, limit, debug) {
+  const results = [];
+  const seen = new Set();
+
+  for (const search of sourceSearchUrls(serial, local)) {
+    if (results.length >= limit) break;
+    const debugEntry = {
+      source: search.source,
+      query: search.query,
+      url: search.url,
+      pages: 0,
+      accepted: 0,
+      rejected: {},
+      acceptedSamples: [],
+      rejectedSamples: [],
+      pageSamples: [],
+      errors: []
+    };
+    debug?.sourceSearches?.push(debugEntry);
+
+    const html = await fetchText(search.url).catch((error) => {
+      debugEntry.errors.push(error.message || "search_fetch_failed");
+      return "";
+    });
+    if (!html) continue;
+
+    const pages = [];
+    const addPage = (pageUrl, context = "") => {
+      const key = pageUrl.split("?")[0].toLowerCase();
+      if (pages.some((page) => page.pageUrl.split("?")[0].toLowerCase() === key)) return;
+      pages.push({ pageUrl, context, sourceName: sourceNameForUrl(pageUrl, search.source) });
+      addDebugSample(debugEntry.pageSamples, { pageUrl, context: String(context || "").slice(0, 180) }, 10);
+    };
+
+    if (identityIsConfirmed(`${search.url} ${html}`, serial, local) && likelyMc130Context(`${search.url} ${html}`)) {
+      addPage(search.url, "search page contains exact serial/local marking");
+    }
+    for (const link of collectSourcePageLinks(html, search.url, serial, local, search.source)) {
+      addPage(link.pageUrl, link.context);
+      if (pages.length >= 8) break;
+    }
+
+    debugEntry.pages = pages.length;
+    for (const page of pages) {
+      const found = await extractValidatedImagesFromKnownSource(page.pageUrl, page.sourceName, search.query, limit - results.length, serial, local, debugEntry);
+      for (const image of found) {
+        const key = image.url.split("?")[0].toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push(image);
+        if (results.length >= limit) break;
+      }
+      if (results.length >= limit) break;
+    }
+  }
+
+  return sortedImages(results).slice(0, limit);
 }
 
 function normalizeBingImageUrl(rawUrl) {
@@ -1184,6 +1485,11 @@ async function fetchBingImages(query, serial, local, limit, debug) {
 
     const evidence = `${raw.metadata} ${raw.imageUrl} ${raw.pageUrl}`;
     const contextEvidence = `${query} ${evidence}`;
+    if (!isPreferredPhotoHostUrl(raw.pageUrl || "") && !isPreferredPhotoHostUrl(raw.imageUrl || "")) {
+      debugCounter(debugEntry.rejected, "non_preferred_source_host");
+      addDebugSample(debugEntry.rejectedSamples, { reason: "non_preferred_source_host", imageUrl: raw.imageUrl, pageUrl: raw.pageUrl, metadata: String(raw.metadata || "").slice(0, 220) });
+      continue;
+    }
     let confirmed = identityIsConfirmed(evidence, serial, local);
     let confirmedBy = "Bing image-result metadata, detail URL, or image/source URL contains exact serial/local marking";
 
@@ -1470,7 +1776,19 @@ async function handleImages(req, res) {
     if (addUniqueImage(images, seen, image)) debug.c130Net.acceptedInitial += 1;
   }
 
-  // Always run Bing image searches even when C-130.net returned candidates, so the result set includes independent imagery.
+  // Source-first discovery: go directly to known aviation photo sources before using Bing as a fallback.
+  if (images.length < limit) {
+    const sourceFound = await fetchSourceFirstImages(serial, local, limit - images.length, debug).catch((error) => {
+      debug.sourceSearches.push({ source: "source-first", query: `${serial} ${local}`, url: "", pages: 0, accepted: 0, rejected: {}, acceptedSamples: [], rejectedSamples: [], pageSamples: [], errors: [error.message || "source-first search failed"] });
+      return [];
+    });
+    for (const image of sourceFound) {
+      addUniqueImage(images, seen, image);
+      if (images.length >= limit) break;
+    }
+  }
+
+  // Bing Images is now a weak fallback only, and is restricted to preferred aviation/photo hosts.
   for (const query of queries) {
     const found = await fetchBingImages(query, serial, local, limit, debug).catch((error) => {
       const last = debug.bingImages[debug.bingImages.length - 1];
@@ -1484,7 +1802,7 @@ async function handleImages(req, res) {
     if (images.length >= limit) break;
   }
 
-  // Fall back to source pages found through Bing only when image search has not filled the target set.
+  // Final fallback: source pages found through Bing web search when direct sources and Bing Images have not filled the target set.
   if (images.length < limit) {
     for (const query of queries) {
       const pageDebug = { query, pages: 0, accepted: 0, errors: [] };
