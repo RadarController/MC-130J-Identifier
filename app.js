@@ -85,6 +85,7 @@ function readStoredJson(key, fallback) {
 const imageCache = readStoredJson("mc130j-image-cache", {});
 const observationCache = {};
 els.total.textContent = aircraft.length;
+if (els.findImages) els.findImages.textContent = "Find images";
 
 function searchQuery(item) {
   return `"${item.serial}" "MC-130J" OR "${item.local}" "Commando II"`;
@@ -206,9 +207,16 @@ function renderImages(serial) {
   images.forEach((image, index) => {
     const article = document.createElement("article");
     article.className = "image-card";
+    const sizeText = image.width || image.height
+      ? `${image.width || "?"} × ${image.height || "?"}`
+      : image.preferredSize
+        ? "Large image"
+        : "Size unknown";
+    const sourceText = image.source ? `${image.source} · ${sizeText}` : sizeText;
     article.innerHTML = `
       <img src="${image.url}" alt="${serial} candidate image ${index + 1}" loading="lazy" referrerpolicy="no-referrer">
       <footer>
+        <span class="image-meta">${sourceText}</span>
         <label><input type="checkbox" value="${index}" checked> Include in AI comparison</label>
         <a href="${image.url}" target="_blank" rel="noreferrer">Open image</a>
       </footer>
@@ -222,25 +230,39 @@ function renderImages(serial) {
 }
 
 async function findImages() {
+  const buttonLabel = "Find images";
   els.imageStatus.textContent = `Searching images for ${selected.serial}...`;
-  els.output.textContent = "Finding candidate images...";
-  const params = new URLSearchParams({
-    serial: selected.serial,
-    local: selected.local || "",
-    source: selected.source || "",
-    limit: "10"
-  });
-  const response = await fetch(`/api/images?${params}`);
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Image search failed.");
+  els.output.textContent = "Finding fresh candidate images...";
+  if (els.findImages) {
+    els.findImages.disabled = true;
+    els.findImages.textContent = "Finding...";
   }
-  imageCache[selected.serial] = data.images || [];
-  localStorage.setItem("mc130j-image-cache", JSON.stringify(imageCache));
-  renderImages(selected.serial);
-  els.output.textContent = imageCache[selected.serial].length
-    ? `Found ${imageCache[selected.serial].length} candidate images for ${selected.serial}.`
-    : `No candidate images found for ${selected.serial}. Try the manual image links above.`;
+
+  try {
+    const params = new URLSearchParams({
+      serial: selected.serial,
+      local: selected.local || "",
+      source: selected.source || "",
+      limit: "10",
+      refresh: "1"
+    });
+    const response = await fetch(`/api/images?${params}`);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "Image search failed.");
+    }
+    imageCache[selected.serial] = data.images || [];
+    localStorage.setItem("mc130j-image-cache", JSON.stringify(imageCache));
+    renderImages(selected.serial);
+    els.output.textContent = imageCache[selected.serial].length
+      ? `Found ${imageCache[selected.serial].length} refreshed candidate image${imageCache[selected.serial].length === 1 ? "" : "s"} for ${selected.serial}.`
+      : `No source-confirmed images found for ${selected.serial}. Try the manual image links above.`;
+  } finally {
+    if (els.findImages) {
+      els.findImages.disabled = false;
+      els.findImages.textContent = buttonLabel;
+    }
+  }
 }
 
 async function analyzeImage(event) {

@@ -368,12 +368,20 @@ function isFreshCache(entry) {
 }
 
 function normalizeImageUrl(raw) {
-  return raw
+  return String(raw || "")
     .replaceAll("\\/", "/")
     .replaceAll("\\u002f", "/")
     .replaceAll("&amp;", "&")
     .replaceAll("&quot;", "\"")
     .trim();
+}
+
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    return value;
+  }
 }
 
 function isUsefulImageUrl(url) {
@@ -392,6 +400,62 @@ function isUsefulImageUrl(url) {
   }
 }
 
+function normalizedIdentityTokens(serial, local) {
+  return [serial, local]
+    .map((token) => String(token || "").trim())
+    .filter((token) => token && !/^unknown$/i.test(token))
+    .flatMap((token) => {
+      const compact = token.replace(/[^a-z0-9]/gi, "");
+      return compact && compact !== token ? [token, compact] : [token];
+    })
+    .map((token) => token.toLowerCase());
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function identityIsConfirmed(text, serial, local) {
+  const haystack = String(text || "").toLowerCase();
+  if (!haystack) return false;
+
+  for (const token of normalizedIdentityTokens(serial, local)) {
+    const pattern = token.includes("-")
+      ? escapeRegExp(token).replace(/\\-/g, "[-\\s]?")
+      : escapeRegExp(token);
+    const re = new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`, "i");
+    if (re.test(haystack)) return true;
+  }
+
+  return false;
+}
+
+function likelyMc130Context(text) {
+  const haystack = String(text || "").toLowerCase();
+  return /mc[-\s]?130j|mc[-\s]?130|commando ii|usaf|air force|lockheed|c[-\s]?130/.test(haystack);
+}
+
+function imageSizePreference(width, height) {
+  const w = Number(width || 0);
+  const h = Number(height || 0);
+  if (!w && !h) return "unknown";
+  return Math.max(w, h) >= 1024 ? "preferred" : "small";
+}
+
+function imageScore(image) {
+  const sizeScore = image.sizePreference === "preferred" ? 60 : image.sizePreference === "unknown" ? 25 : 0;
+  const sourceScore = image.source === "C-130.net" ? 35 : image.source === "Bing Images" ? 20 : 15;
+  const fullScore = image.url && !/\/thumbs\//i.test(image.url) ? 15 : 0;
+  return sizeScore + sourceScore + fullScore;
+}
+
+function sortedImages(images) {
+  return images
+    .map((image, index) => ({ image, index }))
+    .sort((a, b) => imageScore(b.image) - imageScore(a.image) || a.index - b.index)
+    .map((entry) => entry.image);
+}
+
 async function fetchText(url) {
   const response = await fetch(url, {
     headers: {
@@ -404,7 +468,40 @@ async function fetchText(url) {
 }
 
 function c130FullImageUrl(url) {
-  return url;
+  try {
+    const parsed = new URL(url);
+    parsed.pathname = parsed.pathname
+      .replace("/g3/var/thumbs/", "/g3/var/albums/")
+      .replace(/\/thumbs\//gi, "/albums/");
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.href;
+  } catch (error) {
+    return url
+      .replace("/g3/var/thumbs/", "/g3/var/albums/")
+      .replace(/\/thumbs\//gi, "/albums/")
+      .split("?")[0];
+  }
+}
+
+function extractLinkedC130Images(detailHtml, detailUrl) {
+  const candidates = [];
+  const linkedPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>\s*<img[^>]+src=["']([^"']+)["'][^>]*>/gis;
+  for (const match of detailHtml.matchAll(linkedPattern)) {
+    candidates.push({ href: match[1], src: match[2] });
+  }
+
+  for (const match of detailHtml.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+    candidates.push({ href: "", src: match[1] });
+  }
+
+  return candidates.map(({ href, src }) => {
+    const thumbUrl = normalizeImageUrl(absolutizeUrl(src, detailUrl));
+    const linkedUrl = href ? normalizeImageUrl(absolutizeUrl(href, detailUrl)) : "";
+    const linkedLooksFull = linkedUrl && /\/g3\/var\/albums\//i.test(linkedUrl) && /\.(jpe?g|png|webp)(?:$|\?)/i.test(linkedUrl);
+    const fullUrl = linkedLooksFull ? c130FullImageUrl(linkedUrl) : c130FullImageUrl(thumbUrl);
+    return { fullUrl, thumbUrl };
+  });
 }
 
 async function fetchC130NetImages(serial, local, sourcePage, limit) {
@@ -416,42 +513,59 @@ async function fetchC130NetImages(serial, local, sourcePage, limit) {
   const rowIndex = sourceHtml.indexOf(serial);
   if (rowIndex === -1) return [];
 
-  const row = sourceHtml.slice(rowIndex, rowIndex + 2500);
-  const detailMatch = row.match(/href="([^"]*display_airframe[^"]*id=\d+[^"]*)"/i);
+  const row = sourceHtml.slice(Math.max(0, rowIndex - 500), rowIndex + 3000);
+  const detailMatch = row.match(/href=["']([^"']*display_airframe[^"']*id=\d+[^"']*)["']/i);
   if (!detailMatch) return [];
 
   const detailUrl = normalizeImageUrl(absolutizeUrl(detailMatch[1], sourcePage)).replace(/\s+/g, "");
   const detailHtml = await fetchText(detailUrl);
   if (!detailHtml) return [];
 
-  const identityText = `${serial} ${local || ""}`.toLowerCase();
   const detailText = detailHtml.toLowerCase();
-  if (!detailText.includes(serial.toLowerCase()) && local && !detailText.includes(local.toLowerCase())) {
+  if (!identityIsConfirmed(detailText, serial, local)) {
     return [];
   }
 
   const images = [];
   const seen = new Set();
-  for (const match of detailHtml.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
-    const raw = normalizeImageUrl(absolutizeUrl(match[1], detailUrl));
-    if (!raw.includes("/g3/var/thumbs/") && !raw.includes("/g3/var/albums/")) continue;
-    const fullUrl = c130FullImageUrl(raw);
-    const key = fullUrl.toLowerCase();
+  const identityText = `${serial} ${local || ""}`.trim();
+
+  for (const { fullUrl, thumbUrl } of extractLinkedC130Images(detailHtml, detailUrl)) {
+    if (!fullUrl || (!fullUrl.includes("/g3/var/albums/") && !thumbUrl.includes("/g3/var/thumbs/"))) continue;
+    const key = fullUrl.split("?")[0].toLowerCase();
     if (seen.has(key) || !isUsefulImageUrl(fullUrl)) continue;
     seen.add(key);
     images.push({
       url: fullUrl,
-      thumbnailUrl: raw,
+      thumbnailUrl: thumbUrl,
       pageUrl: detailUrl,
       source: "C-130.net",
-      query: identityText
+      query: identityText,
+      identityConfirmed: true,
+      identityConfirmedBy: "C-130.net serial detail page",
+      sizePreference: "unknown",
+      preferredSize: true
     });
     if (images.length >= limit) break;
   }
+
   return images;
 }
 
-async function fetchBingImages(query, limit) {
+function isAllowedHost(url, hosts = allowedImageHosts) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return hosts.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch (error) {
+    return false;
+  }
+}
+
+function normalizeBingImageUrl(rawUrl) {
+  return normalizeImageUrl(safeDecodeURIComponent(rawUrl));
+}
+
+async function fetchBingImages(query, serial, local, limit) {
   const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1&safeSearch=strict`;
   const response = await fetch(url, {
     headers: {
@@ -467,19 +581,27 @@ async function fetchBingImages(query, limit) {
   const html = await response.text();
   const results = [];
   const seen = new Set();
-  const requiredTerms = ["mc-130", "mc130", "commando", query.match(/\d{2}-\d{4}/)?.[0]].filter(Boolean);
-  const addImage = (rawUrl, metadata = "") => {
-    const imageUrl = normalizeImageUrl(decodeURIComponent(rawUrl));
+
+  const addImage = (rawUrl, metadata = "", width = 0, height = 0) => {
+    const imageUrl = normalizeBingImageUrl(rawUrl);
     const key = imageUrl.split("?")[0].toLowerCase();
-    const haystack = `${metadata} ${imageUrl}`.toLowerCase();
-    const looksRelevant = requiredTerms.some((term) => haystack.includes(term.toLowerCase()));
-    if (seen.has(key) || !looksRelevant || !isUsefulImageUrl(imageUrl)) return false;
+    const evidence = `${metadata} ${imageUrl}`;
+    const confirmed = identityIsConfirmed(evidence, serial, local);
+    const relevantContext = likelyMc130Context(evidence) || isAllowedHost(imageUrl);
+    if (seen.has(key) || !confirmed || !relevantContext || !isUsefulImageUrl(imageUrl)) return false;
     seen.add(key);
+    const sizePreference = imageSizePreference(width, height);
     results.push({
       url: imageUrl,
       pageUrl: url,
       source: "Bing Images",
-      query
+      query,
+      width: Number(width || 0) || undefined,
+      height: Number(height || 0) || undefined,
+      sizePreference,
+      preferredSize: sizePreference !== "small",
+      identityConfirmed: true,
+      identityConfirmedBy: "Bing result metadata or image URL"
     });
     return results.length >= limit;
   };
@@ -490,7 +612,9 @@ async function fetchBingImages(query, limit) {
         .replaceAll("&amp;", "&")
         .replaceAll("&quot;", "\"");
       const item = JSON.parse(json);
-      if (item.murl && addImage(item.murl, `${item.t || ""} ${item.purl || ""}`)) return results;
+      if (item.murl && addImage(item.murl, `${item.t || ""} ${item.purl || ""}`, item.w || item.width, item.h || item.height)) {
+        return sortedImages(results).slice(0, limit);
+      }
     } catch (error) {
       // Fall back to simpler URL extraction below.
     }
@@ -504,20 +628,11 @@ async function fetchBingImages(query, limit) {
 
   for (const pattern of patterns) {
     for (const match of html.matchAll(pattern)) {
-      if (addImage(match[1])) return results;
+      if (addImage(match[1])) return sortedImages(results).slice(0, limit);
     }
   }
 
-  return results;
-}
-
-function isAllowedHost(url, hosts = allowedImageHosts) {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return hosts.some((domain) => host === domain || host.endsWith(`.${domain}`));
-  } catch (error) {
-    return false;
-  }
+  return sortedImages(results).slice(0, limit);
 }
 
 async function fetchBingPages(query, limit) {
@@ -533,7 +648,7 @@ async function fetchBingPages(query, limit) {
   const html = await response.text();
   const pages = [];
   const seen = new Set();
-  for (const match of html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"/g)) {
+  for (const match of html.matchAll(/<a[^>]+href="(https?:\/\/[^"#]+)"/g)) {
     const pageUrl = normalizeImageUrl(match[1]);
     const key = pageUrl.split("?")[0].toLowerCase();
     if (seen.has(key) || !isAllowedHost(pageUrl)) continue;
@@ -552,7 +667,12 @@ function absolutizeUrl(candidate, pageUrl) {
   }
 }
 
-async function extractImagesFromPage(pageUrl, query, limit) {
+function attrValue(tag, attr) {
+  const match = tag.match(new RegExp(`${attr}=["']?([^"'\\s>]+)`, "i"));
+  return match ? match[1] : "";
+}
+
+async function extractImagesFromPage(pageUrl, query, limit, serial, local) {
   try {
     const response = await fetch(pageUrl, {
       headers: {
@@ -562,30 +682,62 @@ async function extractImagesFromPage(pageUrl, query, limit) {
     });
     if (!response.ok) return [];
     const html = await response.text();
+    const pageEvidence = `${pageUrl} ${html}`;
+    if (!identityIsConfirmed(pageEvidence, serial, local)) return [];
+
     const candidates = [];
-    const patterns = [
-      /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["']/gi,
-      /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image)["']/gi,
-      /<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["']/gi
+    const seen = new Set();
+    const addCandidate = (rawUrl, sourceTag = "", width = 0, height = 0) => {
+      const imageUrl = normalizeImageUrl(absolutizeUrl(rawUrl, pageUrl));
+      const key = imageUrl.split("?")[0].toLowerCase();
+      const evidence = `${pageUrl} ${sourceTag} ${imageUrl}`;
+      if (seen.has(key) || !identityIsConfirmed(`${pageEvidence} ${evidence}`, serial, local) || !isUsefulImageUrl(imageUrl)) return false;
+      seen.add(key);
+      const sizePreference = imageSizePreference(width, height);
+      candidates.push({
+        url: imageUrl,
+        pageUrl,
+        source: new URL(pageUrl).hostname,
+        query,
+        width: Number(width || 0) || undefined,
+        height: Number(height || 0) || undefined,
+        sizePreference,
+        preferredSize: sizePreference !== "small",
+        identityConfirmed: true,
+        identityConfirmedBy: "Source page contains exact serial/local marking"
+      });
+      return candidates.length >= limit;
+    };
+
+    const metaPatterns = [
+      /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*>/gi
     ];
-    for (const pattern of patterns) {
+    for (const pattern of metaPatterns) {
       for (const match of html.matchAll(pattern)) {
-        const imageUrl = normalizeImageUrl(absolutizeUrl(match[1], pageUrl));
-        if (isUsefulImageUrl(imageUrl)) {
-          candidates.push({
-            url: imageUrl,
-            pageUrl,
-            source: new URL(pageUrl).hostname,
-            query
-          });
-        }
-        if (candidates.length >= limit) return candidates;
+        if (addCandidate(match[1], match[0], 1024, 0)) return sortedImages(candidates).slice(0, limit);
       }
     }
-    return candidates;
+
+    for (const match of html.matchAll(/<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) {
+      const tag = match[0];
+      const width = Number(attrValue(tag, "width") || 0);
+      const height = Number(attrValue(tag, "height") || 0);
+      if (addCandidate(match[1], tag, width, height)) return sortedImages(candidates).slice(0, limit);
+    }
+
+    return sortedImages(candidates).slice(0, limit);
   } catch (error) {
     return [];
   }
+}
+
+function addUniqueImage(images, seen, image) {
+  const imageKey = image.url.split("?")[0].toLowerCase();
+  if (seen.has(imageKey) || !image.identityConfirmed) return false;
+  seen.add(imageKey);
+  images.push(image);
+  return true;
 }
 
 async function handleImages(req, res) {
@@ -593,7 +745,7 @@ async function handleImages(req, res) {
   const serial = url.searchParams.get("serial") || "";
   const local = url.searchParams.get("local") || "";
   const sourcePage = url.searchParams.get("source") || "";
-  const limit = Math.min(Number(url.searchParams.get("limit") || 10), 10);
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 10), 1), 10);
   const refresh = url.searchParams.get("refresh") === "1";
 
   if (!serial) {
@@ -622,58 +774,51 @@ async function handleImages(req, res) {
 
   const images = [];
   const seen = new Set();
-  const c130Images = await fetchC130NetImages(serial, local, sourcePage, limit).catch(() => []);
-  for (const image of c130Images) {
-    const imageKey = image.url.split("?")[0].toLowerCase();
-    if (seen.has(imageKey)) continue;
-    seen.add(imageKey);
-    images.push(image);
-    if (images.length >= limit) {
-      cache[searchCacheKey] = { serial, local, images, updatedAt: new Date().toISOString() };
-      await writeImageCache(cache);
-      sendJson(res, 200, { serial, local, cached: false, images });
-      return;
-    }
+  const c130Images = sortedImages(await fetchC130NetImages(serial, local, sourcePage, limit).catch(() => []));
+  const c130InitialLimit = Math.min(c130Images.length, Math.max(3, Math.floor(limit / 2)));
+
+  for (const image of c130Images.slice(0, c130InitialLimit)) {
+    addUniqueImage(images, seen, image);
   }
 
+  // Always run Bing image searches even when C-130.net returned candidates, so the result set includes independent imagery.
   for (const query of queries) {
-    const found = await fetchBingImages(query, limit).catch(() => []);
+    const found = await fetchBingImages(query, serial, local, limit).catch(() => []);
     for (const image of found) {
-      const imageKey = image.url.split("?")[0].toLowerCase();
-      if (seen.has(imageKey)) continue;
-      seen.add(imageKey);
-      images.push(image);
-      if (images.length >= limit) {
-        cache[searchCacheKey] = { serial, local, images, updatedAt: new Date().toISOString() };
-        await writeImageCache(cache);
-        sendJson(res, 200, { serial, local, cached: false, images });
-        return;
-      }
+      addUniqueImage(images, seen, image);
+      if (images.length >= limit) break;
     }
+    if (images.length >= limit) break;
   }
 
-  for (const query of queries) {
-    const pages = await fetchBingPages(query, 8).catch(() => []);
-    for (const page of pages) {
-      const found = await extractImagesFromPage(page, query, limit - images.length);
-      for (const image of found) {
-        const imageKey = image.url.split("?")[0].toLowerCase();
-        if (seen.has(imageKey)) continue;
-        seen.add(imageKey);
-        images.push(image);
-        if (images.length >= limit) {
-          cache[searchCacheKey] = { serial, local, images, updatedAt: new Date().toISOString() };
-          await writeImageCache(cache);
-          sendJson(res, 200, { serial, local, cached: false, images });
-          return;
+  // Fall back to source pages found through Bing only when image search has not filled the target set.
+  if (images.length < limit) {
+    for (const query of queries) {
+      const pages = await fetchBingPages(query, 8).catch(() => []);
+      for (const page of pages) {
+        const found = await extractImagesFromPage(page, query, limit - images.length, serial, local);
+        for (const image of found) {
+          addUniqueImage(images, seen, image);
+          if (images.length >= limit) break;
         }
+        if (images.length >= limit) break;
       }
+      if (images.length >= limit) break;
     }
   }
 
-  cache[searchCacheKey] = { serial, local, images, updatedAt: new Date().toISOString() };
+  // If strict Bing confirmation is sparse, top up with remaining source-confirmed C-130.net full-size images.
+  if (images.length < limit) {
+    for (const image of c130Images.slice(c130InitialLimit)) {
+      addUniqueImage(images, seen, image);
+      if (images.length >= limit) break;
+    }
+  }
+
+  const finalImages = sortedImages(images).slice(0, limit);
+  cache[searchCacheKey] = { serial, local, images: finalImages, updatedAt: new Date().toISOString() };
   await writeImageCache(cache);
-  sendJson(res, 200, { serial, local, cached: false, images });
+  sendJson(res, 200, { serial, local, cached: false, images: finalImages });
 }
 
 function groqText(response) {

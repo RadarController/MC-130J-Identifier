@@ -1953,3 +1953,17 @@ html[data-theme="dark"] .image-card {
     padding: 22px;
   }
 }
+
+
+/* MC-130J image scraper refinements */
+.mc130j-page .button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+  transform: none;
+}
+
+.image-meta {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
