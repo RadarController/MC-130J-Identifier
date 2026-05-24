@@ -227,6 +227,7 @@ async function findImages() {
   const params = new URLSearchParams({
     serial: selected.serial,
     local: selected.local || "",
+    source: selected.source || "",
     limit: "10"
   });
   const response = await fetch(`/api/images?${params}`);

@@ -31,7 +31,8 @@ const allowedImageHosts = [
   "media.defense.gov",
   "theaviationist.com",
   "scramble.nl",
-  "airplane-pictures.net"
+  "airplane-pictures.net",
+  "c-130.net"
 ];
 const blockedImageHosts = [
   "hentai",
@@ -384,11 +385,70 @@ function isUsefulImageUrl(url) {
     return /^https?:$/i.test(parsed.protocol) &&
       allowed &&
       !blocked &&
-      !/(\.svg|sprite|logo|avatar|profile|icon)/i.test(url) &&
+      !/(\.svg|sprite|logo|avatar|profile|icon|camera\.png|usaf\.gif|rss-feed|facebook|bluesky)/i.test(url) &&
       !/bing\.com\/th\?/i.test(url);
   } catch (error) {
     return false;
   }
+}
+
+async function fetchText(url) {
+  const response = await fetch(url, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+      "accept-language": "en-US,en;q=0.9"
+    }
+  });
+  if (!response.ok) return "";
+  return response.text();
+}
+
+function c130FullImageUrl(url) {
+  return url;
+}
+
+async function fetchC130NetImages(serial, local, sourcePage, limit) {
+  if (!sourcePage || !sourcePage.includes("c-130.net")) return [];
+
+  const sourceHtml = await fetchText(sourcePage);
+  if (!sourceHtml) return [];
+
+  const rowIndex = sourceHtml.indexOf(serial);
+  if (rowIndex === -1) return [];
+
+  const row = sourceHtml.slice(rowIndex, rowIndex + 2500);
+  const detailMatch = row.match(/href="([^"]*display_airframe[^"]*id=\d+[^"]*)"/i);
+  if (!detailMatch) return [];
+
+  const detailUrl = normalizeImageUrl(absolutizeUrl(detailMatch[1], sourcePage)).replace(/\s+/g, "");
+  const detailHtml = await fetchText(detailUrl);
+  if (!detailHtml) return [];
+
+  const identityText = `${serial} ${local || ""}`.toLowerCase();
+  const detailText = detailHtml.toLowerCase();
+  if (!detailText.includes(serial.toLowerCase()) && local && !detailText.includes(local.toLowerCase())) {
+    return [];
+  }
+
+  const images = [];
+  const seen = new Set();
+  for (const match of detailHtml.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+    const raw = normalizeImageUrl(absolutizeUrl(match[1], detailUrl));
+    if (!raw.includes("/g3/var/thumbs/") && !raw.includes("/g3/var/albums/")) continue;
+    const fullUrl = c130FullImageUrl(raw);
+    const key = fullUrl.toLowerCase();
+    if (seen.has(key) || !isUsefulImageUrl(fullUrl)) continue;
+    seen.add(key);
+    images.push({
+      url: fullUrl,
+      thumbnailUrl: raw,
+      pageUrl: detailUrl,
+      source: "C-130.net",
+      query: identityText
+    });
+    if (images.length >= limit) break;
+  }
+  return images;
 }
 
 async function fetchBingImages(query, limit) {
@@ -444,7 +504,7 @@ async function fetchBingImages(query, limit) {
 
   for (const pattern of patterns) {
     for (const match of html.matchAll(pattern)) {
-      if (addImage(match[1], query)) return results;
+      if (addImage(match[1])) return results;
     }
   }
 
@@ -532,6 +592,7 @@ async function handleImages(req, res) {
   const url = new URL(req.url, `http://${host}:${port}`);
   const serial = url.searchParams.get("serial") || "";
   const local = url.searchParams.get("local") || "";
+  const sourcePage = url.searchParams.get("source") || "";
   const limit = Math.min(Number(url.searchParams.get("limit") || 10), 10);
   const refresh = url.searchParams.get("refresh") === "1";
 
@@ -561,8 +622,22 @@ async function handleImages(req, res) {
 
   const images = [];
   const seen = new Set();
+  const c130Images = await fetchC130NetImages(serial, local, sourcePage, limit).catch(() => []);
+  for (const image of c130Images) {
+    const imageKey = image.url.split("?")[0].toLowerCase();
+    if (seen.has(imageKey)) continue;
+    seen.add(imageKey);
+    images.push(image);
+    if (images.length >= limit) {
+      cache[searchCacheKey] = { serial, local, images, updatedAt: new Date().toISOString() };
+      await writeImageCache(cache);
+      sendJson(res, 200, { serial, local, cached: false, images });
+      return;
+    }
+  }
+
   for (const query of queries) {
-    const found = await fetchBingImages(query, limit);
+    const found = await fetchBingImages(query, limit).catch(() => []);
     for (const image of found) {
       const imageKey = image.url.split("?")[0].toLowerCase();
       if (seen.has(imageKey)) continue;
@@ -578,7 +653,7 @@ async function handleImages(req, res) {
   }
 
   for (const query of queries) {
-    const pages = await fetchBingPages(query, 8);
+    const pages = await fetchBingPages(query, 8).catch(() => []);
     for (const page of pages) {
       const found = await extractImagesFromPage(page, query, limit - images.length);
       for (const image of found) {
