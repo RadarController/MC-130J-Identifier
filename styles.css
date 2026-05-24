@@ -1531,3 +1531,405 @@ html[data-theme="dark"] .terms-page .terms-warning-panel h2 {
 html[data-theme="dark"] .terms-page .terms-warning-panel p {
   color: var(--ink-soft);
 }
+
+/* MC-130J Identifier page only */
+.mc130j-page {
+  display: grid;
+  gap: 22px;
+}
+
+.mc130j-page .hero.tools-hero {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  align-items: end;
+  padding-bottom: 26px;
+}
+
+.mc130j-page .hero h1 {
+  max-width: none;
+}
+
+.mc130j-page .hero-text {
+  max-width: 56rem;
+}
+
+.mc130j-stat-card {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  min-height: 160px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.mc130j-stat-card strong {
+  display: block;
+  font-size: clamp(2.7rem, 5vw, 4.6rem);
+  line-height: 0.9;
+  letter-spacing: -0.055em;
+}
+
+.mc130j-stat-card span {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.mc130j-search-card,
+.mc130j-registry-card,
+.mc130j-selected-card,
+.mc130j-analysis-card,
+.mc130j-result-card,
+.mc130j-human-card {
+  width: 100%;
+}
+
+.mc130j-search-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.15fr) minmax(190px, 0.8fr) minmax(260px, 1.2fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.mc130j-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mc130j-field .section-label,
+.mc130j-control-label {
+  margin-bottom: 0;
+}
+
+.mc130j-page input:not([type="range"]),
+.mc130j-page select,
+.mc130j-page textarea {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 12px 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.mc130j-page textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.mc130j-page select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--accent) 50%),
+    linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+  background-position:
+    calc(100% - 20px) 50%,
+    calc(100% - 14px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 42px;
+}
+
+.mc130j-page input:not([type="range"]):focus,
+.mc130j-page select:focus,
+.mc130j-page textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.mc130j-page input::placeholder,
+.mc130j-page textarea::placeholder {
+  color: var(--ink-muted);
+}
+
+.mc130j-page input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.mc130j-registry-card {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: end;
+  padding: 28px;
+}
+
+.mc130j-registry-meta {
+  display: grid;
+  gap: 10px;
+}
+
+.mc130j-registry-meta h2,
+.mc130j-selected-card h2,
+.mc130j-analysis-card h2,
+.mc130j-result-card h2,
+.mc130j-human-card h2,
+.mc130j-image-panel h2 {
+  margin: 0;
+  font-size: clamp(1.7rem, 2.4vw, 2.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.mc130j-registry-meta p:not(.section-label),
+.mc130j-selected-card p,
+.mc130j-analysis-card p,
+.mc130j-human-card p,
+.mc130j-image-panel p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.75;
+}
+
+.serial-list-source {
+  display: none;
+}
+
+.mc130j-selected-card {
+  display: grid;
+  gap: 24px;
+  padding: 28px;
+}
+
+.mc130j-selected-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: start;
+}
+
+.tags,
+.mc130j-actions,
+.mc130j-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.badge,
+.text-link,
+.mc130j-page .image-card footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.badge.warning {
+  background: rgba(184, 109, 59, 0.12);
+  color: var(--warm);
+}
+
+.mc130j-image-panel {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+}
+
+.mc130j-image-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.image-card {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 10px 22px rgba(23, 38, 61, 0.06);
+}
+
+.image-card img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  background: var(--surface-alt);
+}
+
+.image-card footer {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.image-card label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.image-card input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.mc130j-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.mc130j-analysis-card,
+.mc130j-result-card,
+.mc130j-human-card {
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.mc130j-card-heading {
+  display: grid;
+  gap: 10px;
+}
+
+.mc130j-result-top {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+#ai-output {
+  min-height: 300px;
+  max-height: 560px;
+  overflow: auto;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(135deg, rgba(25, 51, 95, 0.03), rgba(184, 109, 59, 0.04)),
+    var(--surface-alt);
+  color: var(--ink-soft);
+  font: 14px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+}
+
+.mc130j-human-card {
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.mc130j-human-fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
+  gap: 14px;
+}
+
+.mc130j-human-fields .mc130j-field:nth-child(2) {
+  grid-row: span 2;
+}
+
+.mc130j-human-fields .button {
+  justify-self: start;
+}
+
+.mc130j-page code {
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.92em;
+}
+
+html[data-theme="dark"] .mc130j-page input:not([type="range"]),
+html[data-theme="dark"] .mc130j-page select,
+html[data-theme="dark"] .mc130j-page textarea {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: var(--line);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .mc130j-image-panel,
+html[data-theme="dark"] #ai-output {
+  background:
+    linear-gradient(135deg, rgba(127, 180, 228, 0.04), rgba(216, 154, 109, 0.035)),
+    var(--surface-alt);
+}
+
+html[data-theme="dark"] .image-card {
+  background: var(--surface);
+}
+
+@media (max-width: 1100px) {
+  .mc130j-search-grid,
+  .mc130j-registry-card,
+  .mc130j-analysis-grid,
+  .mc130j-human-card,
+  .mc130j-human-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .mc130j-search-grid .button,
+  .mc130j-human-fields .button {
+    width: 100%;
+  }
+
+  .mc130j-selected-top,
+  .mc130j-image-header,
+  .mc130j-result-top {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .image-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .mc130j-page .hero.tools-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .image-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mc130j-search-card,
+  .mc130j-registry-card,
+  .mc130j-selected-card,
+  .mc130j-analysis-card,
+  .mc130j-result-card,
+  .mc130j-human-card {
+    padding: 22px;
+  }
+}
+

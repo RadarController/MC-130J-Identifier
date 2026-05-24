@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div class="site-shell tools-page">
+    <div class="site-shell tools-page mc130j-page">
       <header class="site-header">
         <a class="brand" href="https://streamingatc.live/" target="_blank" rel="noreferrer">
           <span class="brand-name">StreamingATC.live</span>
@@ -15,8 +15,6 @@
         </a>
         <nav class="site-nav" aria-label="Primary navigation">
           <a href="https://streamingatc.live/" target="_blank" rel="noreferrer">Website</a>
-          <a href="#workspace">Aircraft</a>
-          <a href="#analysis">Analysis</a>
           <button class="theme-toggle" type="button" data-theme-toggle>Dark mode</button>
         </nav>
       </header>
@@ -24,43 +22,30 @@
       <main>
         <section class="hero tools-hero">
           <div class="hero-copy tools-hero-copy">
-            <p class="eyebrow">USAF special operations Hercules research board</p>
+            <p class="eyebrow">Research board</p>
             <h1>MC-130J Identifier</h1>
-            <p class="hero-text">
-              A structured working board for comparing MC-130J serials, candidate imagery, local markings, and analyst observations.
-            </p>
-            <div class="hero-actions">
-              <a class="button button-primary" href="#workspace">Review aircraft</a>
-              <button id="export-json" type="button" class="button button-secondary">Export notes</button>
-            </div>
+            <p class="hero-text">Compare MC-130J serials, candidate imagery, local markings, and analyst observations from a single structured working board.</p>
           </div>
-
-          <aside class="placeholder-card hero-visual" aria-label="Loaded aircraft records">
-            <p class="placeholder-label">Loaded records</p>
-            <div class="placeholder-box">
-              <div class="placeholder-lines" aria-hidden="true">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <p><strong id="total-count">0</strong> serial records included in the current working set.</p>
-            </div>
+          <aside class="mc130j-stat-card" aria-label="Loaded aircraft records">
+            <span class="section-label">Loaded records</span>
+            <strong id="total-count">0</strong>
+            <span>serial records</span>
           </aside>
         </section>
 
-        <section class="tool-platform-card tool-card-gsx" aria-label="Search and filters">
+        <section class="tool-platform-card tool-card-gsx mc130j-search-card" aria-label="Search and filters">
           <div class="tool-platform-top">
             <p class="tool-platform-label">Search controls</p>
             <span class="tool-platform-chip">Research board</span>
           </div>
           <h2>Find the aircraft record</h2>
           <p>Filter by serial, T/V, delivery date, source set, or Groq model before reviewing candidate imagery.</p>
-          <div class="decision-grid">
-            <label class="legal-panel">
+          <div class="mc130j-search-grid">
+            <label class="mc130j-field">
               <span class="section-label">Search</span>
               <input id="search" type="search" placeholder="Serial, T/V, delivery date">
             </label>
-            <label class="legal-panel">
+            <label class="mc130j-field">
               <span class="section-label">Record set</span>
               <select id="record-filter">
                 <option value="all">All source records</option>
@@ -68,102 +53,111 @@
                 <option value="newer">Newer C-130.net candidates</option>
               </select>
             </label>
-            <label class="legal-panel">
+            <label class="mc130j-field">
               <span class="section-label">Groq model</span>
               <input id="model" type="text" value="meta-llama/llama-4-scout-17b-16e-instruct">
             </label>
+            <button id="export-json" type="button" class="button button-secondary">Export notes</button>
           </div>
         </section>
 
-        <section id="workspace" class="decision-card">
-          <aside class="decision-text" aria-label="Aircraft serials">
+        <section id="workspace" class="decision-card mc130j-registry-card" aria-label="Aircraft registry">
+          <div class="mc130j-registry-meta">
             <p class="section-label">Registry</p>
             <h2>Serials</h2>
             <p id="visible-count">0 shown</p>
-            <div id="serial-list" class="link-group" role="list"></div>
-          </aside>
+          </div>
+          <label class="mc130j-field">
+            <span class="section-label">Select aircraft</span>
+            <select id="serial-select" aria-label="Select aircraft serial"></select>
+          </label>
+          <div id="serial-list" class="serial-list-source" role="list" aria-hidden="true"></div>
+        </section>
 
-          <section class="decision-text" aria-live="polite">
-            <div>
+        <section class="decision-card mc130j-selected-card" aria-live="polite">
+          <div class="mc130j-selected-top">
+            <div class="mc130j-card-heading">
               <p class="section-label">Selected aircraft</p>
               <h2 id="selected-title">Select a serial</h2>
             </div>
-            <div id="selected-tags" class="tool-list"></div>
+            <div id="selected-tags" class="tags"></div>
+          </div>
 
-            <div class="link-group" aria-label="External image and source links">
-              <a id="google-link" class="text-link" target="_blank" rel="noreferrer">Google Images</a>
-              <a id="bing-link" class="text-link" target="_blank" rel="noreferrer">Bing Images</a>
-              <a id="jetphotos-link" class="text-link" target="_blank" rel="noreferrer">JetPhotos</a>
-              <a id="airhistory-link" class="text-link" target="_blank" rel="noreferrer">AirHistory</a>
-              <a id="source-link" class="text-link" target="_blank" rel="noreferrer">Source page</a>
-            </div>
+          <div class="mc130j-actions" aria-label="External image and source links">
+            <a id="google-link" class="text-link" target="_blank" rel="noreferrer">Google Images</a>
+            <a id="bing-link" class="text-link" target="_blank" rel="noreferrer">Bing Images</a>
+            <a id="jetphotos-link" class="text-link" target="_blank" rel="noreferrer">JetPhotos</a>
+            <a id="airhistory-link" class="text-link" target="_blank" rel="noreferrer">AirHistory</a>
+            <a id="source-link" class="text-link" target="_blank" rel="noreferrer">Source page</a>
+          </div>
 
-            <section class="placeholder-card">
-              <p class="placeholder-label">Visual evidence</p>
-              <h2>Candidate images</h2>
-              <p id="image-status">No images loaded.</p>
-              <div class="hero-actions">
-                <button id="find-images" type="button" class="button button-secondary">Find 6-10 images</button>
+          <section class="mc130j-image-panel">
+            <div class="mc130j-image-header">
+              <div class="mc130j-card-heading">
+                <p class="section-label">Visual evidence</p>
+                <h2>Candidate images</h2>
+                <p id="image-status">No images loaded.</p>
               </div>
-              <div id="image-grid" class="tools-grid"></div>
-            </section>
+              <button id="find-images" type="button" class="button button-secondary">Find 6-10 images</button>
+            </div>
+            <div id="image-grid" class="image-grid"></div>
           </section>
         </section>
 
-        <section id="analysis" class="decision-grid">
-          <form id="ai-form" class="decision-card">
-            <div class="decision-text">
+        <section id="analysis" class="mc130j-analysis-grid">
+          <form id="ai-form" class="mc130j-analysis-card">
+            <div class="mc130j-card-heading">
               <p class="section-label">AI assist</p>
               <h2>Groq marking comparison</h2>
               <p>Groq runs server-side using the Railway <code>GROQ_API_KEY</code> variable. Groq vision accepts up to 5 images per request, so larger sets are analyzed in batches and synthesized.</p>
             </div>
-            <div class="decision-text">
-              <label class="legal-panel">
-                <span class="section-label">Extra context</span>
-                <textarea id="context" rows="5" placeholder="Photo date, location, suspected serial, visible tail/nose details"></textarea>
-              </label>
-              <button id="run-ai" type="submit" class="button button-primary">Analyze displayed images</button>
-            </div>
+            <label class="mc130j-field">
+              <span class="section-label">Extra context</span>
+              <textarea id="context" rows="5" placeholder="Photo date, location, suspected serial, visible tail/nose details"></textarea>
+            </label>
+            <button id="run-ai" type="submit" class="button button-primary">Analyze displayed images</button>
           </form>
 
-          <section class="decision-card">
-            <div class="decision-text">
-              <p class="section-label">Human review</p>
-              <h2>Manual observations</h2>
-              <p>Capture visible paint, sensor, tail, pod, tank, antenna, or repair differences against the selected aircraft.</p>
-            </div>
-            <div class="decision-text">
-              <label class="legal-panel">
-                <span class="section-label">Paint demarcation</span>
-                <select id="paint-line">
-                  <option value="">Unrecorded</option>
-                  <option>High fuselage line</option>
-                  <option>Low fuselage line</option>
-                  <option>Stepped near ramp</option>
-                  <option>Different on tanks</option>
-                  <option>Mostly uniform dark grey</option>
-                </select>
-              </label>
-              <label class="legal-panel">
-                <span class="section-label">Unique markings</span>
-                <textarea id="markings" rows="5" placeholder="Sensor fairings, tail code traces, pod/tank paint split, antenna fit, patches, repairs"></textarea>
-              </label>
-              <label class="legal-panel">
-                <span class="section-label">Confidence</span>
-                <input id="confidence" type="range" min="0" max="100" value="0">
-              </label>
-              <button id="save-note" type="button" class="button button-secondary">Save observation</button>
-            </div>
-          </section>
-
-          <section class="legal-panel">
-            <div class="link-group">
-              <span class="text-link">Output</span>
+          <section class="mc130j-result-card">
+            <div class="mc130j-result-top">
+              <div class="mc130j-card-heading">
+                <p class="section-label">Output</p>
+                <h2>Analysis result</h2>
+              </div>
               <button id="clear-result" type="button" class="button button-secondary">Clear</button>
             </div>
-            <h2>Analysis result</h2>
             <pre id="ai-output">No analysis yet.</pre>
           </section>
+        </section>
+
+        <section class="mc130j-human-card">
+          <div class="mc130j-card-heading">
+            <p class="section-label">Human review</p>
+            <h2>Manual observations</h2>
+            <p>Capture visible paint, sensor, tail, pod, tank, antenna, or repair differences against the selected aircraft.</p>
+          </div>
+          <div class="mc130j-human-fields">
+            <label class="mc130j-field">
+              <span class="section-label">Paint demarcation</span>
+              <select id="paint-line">
+                <option value="">Unrecorded</option>
+                <option>High fuselage line</option>
+                <option>Low fuselage line</option>
+                <option>Stepped near ramp</option>
+                <option>Different on tanks</option>
+                <option>Mostly uniform dark grey</option>
+              </select>
+            </label>
+            <label class="mc130j-field">
+              <span class="section-label">Unique markings</span>
+              <textarea id="markings" rows="5" placeholder="Sensor fairings, tail code traces, pod/tank paint split, antenna fit, patches, repairs"></textarea>
+            </label>
+            <label class="mc130j-field">
+              <span class="section-label">Confidence</span>
+              <input id="confidence" type="range" min="0" max="100" value="0">
+            </label>
+            <button id="save-note" type="button" class="button button-secondary">Save observation</button>
+          </div>
         </section>
       </main>
     </div>
