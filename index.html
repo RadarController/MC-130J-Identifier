@@ -7,240 +7,169 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div class="page-bg"></div>
-    <div class="grid-overlay"></div>
-
-    <div class="site-shell">
+    <div class="site-shell tools-page">
       <header class="site-header">
-        <a class="brand-lockup" href="https://streamingatc.live/" target="_blank" rel="noreferrer">
-          <span class="brand-mark"><span class="brand-dot"></span></span>
-          <span>
-            <span class="brand-name">StreamingATC.live</span>
-            <span class="brand-subtitle">MC-130J Identifier System</span>
-          </span>
+        <a class="brand" href="https://streamingatc.live/" target="_blank" rel="noreferrer">
+          <span class="brand-name">StreamingATC.live</span>
+          <span class="brand-subtitle">MC-130J Identifier System</span>
         </a>
         <nav class="site-nav" aria-label="Primary navigation">
-          <a href="https://streamingatc.live/" target="_blank" rel="noreferrer">Platform</a>
-          <a href="#workspace">Workspace</a>
+          <a href="https://streamingatc.live/" target="_blank" rel="noreferrer">Website</a>
+          <a href="#workspace">Aircraft</a>
+          <a href="#analysis">Analysis</a>
+          <button class="theme-toggle" type="button" data-theme-toggle>Dark mode</button>
         </nav>
       </header>
 
       <main>
-        <section class="hero">
-          <div>
-            <span class="eyebrow">USAF special operations Hercules research board</span>
+        <section class="hero tools-hero">
+          <div class="hero-copy tools-hero-copy">
+            <p class="eyebrow">USAF special operations Hercules research board</p>
             <h1>MC-130J Identifier</h1>
-            <p>A structured working board for comparing MC-130J serials, candidate imagery, local markings, and analyst observations.</p>
-            <p class="muted-copy">Designed as a practical research interface using the same visual system as StreamingATC.live.</p>
+            <p class="hero-text">
+              A structured working board for comparing MC-130J serials, candidate imagery, local markings, and analyst observations.
+            </p>
             <div class="hero-actions">
-              <a class="button button-solid" href="#workspace">Review aircraft</a>
-              <button id="export-json" type="button" class="button button-outline">Export notes</button>
+              <a class="button button-primary" href="#workspace">Review aircraft</a>
+              <button id="export-json" type="button" class="button button-secondary">Export notes</button>
             </div>
           </div>
 
-          <div class="hero-visual" aria-label="Identifier status">
-            <div class="radar-sweep" aria-hidden="true">
-              <span class="ring ring-1"></span>
-              <span class="ring ring-2"></span>
-              <span class="ring ring-3"></span>
-              <span class="crosshair crosshair-v"></span>
-              <span class="crosshair crosshair-h"></span>
-              <span class="center-dot"></span>
-              <span class="ping ping-a"></span>
-              <span class="ping ping-b"></span>
-              <span class="ping ping-c"></span>
-              <span class="sweep-cone"></span>
+          <aside class="placeholder-card hero-visual" aria-label="Loaded aircraft records">
+            <p class="placeholder-label">Loaded records</p>
+            <div class="placeholder-box">
+              <div class="placeholder-lines" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <p><strong id="total-count">0</strong> serial records included in the current working set.</p>
             </div>
-
-            <aside class="visual-card">
-              <div class="visual-card-top">
-                <span class="status-pill">Research board online</span>
-                <span class="footer-chip">Serial registry</span>
-              </div>
-              <div class="image-frame">
-                <div class="image-fallback">
-                  <div class="image-fallback-card">
-                    <div class="mini-label">Loaded records</div>
-                    <div class="hero h1" aria-hidden="true"></div>
-                    <div class="mini-copy strong"><strong id="total-count">0</strong> serial records</div>
-                    <div class="mini-copy">MC-130J Commando II identification workflow</div>
-                  </div>
-                </div>
-              </div>
-              <div class="image-footer">
-                <div>
-                  <div class="mini-label">Mode</div>
-                  <div class="mini-copy strong">Image and marking comparison</div>
-                </div>
-                <span class="footer-chip">Groq-assisted</span>
-              </div>
-            </aside>
-          </div>
+          </aside>
         </section>
 
-        <section class="content-section compact-top" aria-label="Search and filters">
-          <div class="section-heading">
-            <div>
-              <span class="section-label">Controls</span>
-              <h2>Search and filter the aircraft set.</h2>
-            </div>
-            <p>Use the registry search to narrow by serial, T/V number, local marking, or delivery information before opening image evidence and observations.</p>
+        <section class="tool-platform-card tool-card-gsx" aria-label="Search and filters">
+          <div class="tool-platform-top">
+            <p class="tool-platform-label">Search controls</p>
+            <span class="tool-platform-chip">Research board</span>
           </div>
-
-          <div class="card-grid card-grid-3">
-            <label class="panel-card">
-              <span class="mini-label">Search</span>
-              <input id="search" class="button button-outline" type="search" placeholder="Serial, T/V, delivery date">
+          <h2>Find the aircraft record</h2>
+          <p>Filter by serial, T/V, delivery date, source set, or Groq model before reviewing candidate imagery.</p>
+          <div class="decision-grid">
+            <label class="legal-panel">
+              <span class="section-label">Search</span>
+              <input id="search" type="search" placeholder="Serial, T/V, delivery date">
             </label>
-            <label class="panel-card">
-              <span class="mini-label">Record set</span>
-              <select id="record-filter" class="button button-outline">
+            <label class="legal-panel">
+              <span class="section-label">Record set</span>
+              <select id="record-filter">
                 <option value="all">All source records</option>
                 <option value="production">Production-list core</option>
                 <option value="newer">Newer C-130.net candidates</option>
               </select>
             </label>
-            <label class="panel-card">
-              <span class="mini-label">Groq model</span>
-              <input id="model" class="button button-outline" type="text" value="meta-llama/llama-4-scout-17b-16e-instruct">
+            <label class="legal-panel">
+              <span class="section-label">Groq model</span>
+              <input id="model" type="text" value="meta-llama/llama-4-scout-17b-16e-instruct">
             </label>
           </div>
         </section>
 
-        <section id="workspace" class="split-section">
-          <aside class="feature-panel dark-card">
-            <div class="card-top">
-              <div>
-                <span class="section-label">Registry</span>
-                <h2>Serials</h2>
-              </div>
-              <span id="visible-count" class="status-pill">0 shown</span>
-            </div>
-            <div id="serial-list" class="stack-list" role="list"></div>
+        <section id="workspace" class="decision-card">
+          <aside class="decision-text" aria-label="Aircraft serials">
+            <p class="section-label">Registry</p>
+            <h2>Serials</h2>
+            <p id="visible-count">0 shown</p>
+            <div id="serial-list" class="link-group" role="list"></div>
           </aside>
 
-          <section class="feature-panel feature-panel-accent" aria-live="polite">
-            <div class="card-top">
-              <div>
-                <span class="eyebrow">Selected aircraft</span>
-                <h2 id="selected-title">Select a serial</h2>
-              </div>
-              <div id="selected-tags" class="hero-actions"></div>
+          <section class="decision-text" aria-live="polite">
+            <div>
+              <p class="section-label">Selected aircraft</p>
+              <h2 id="selected-title">Select a serial</h2>
+            </div>
+            <div id="selected-tags" class="tool-list"></div>
+
+            <div class="link-group" aria-label="External image and source links">
+              <a id="google-link" class="text-link" target="_blank" rel="noreferrer">Google Images</a>
+              <a id="bing-link" class="text-link" target="_blank" rel="noreferrer">Bing Images</a>
+              <a id="jetphotos-link" class="text-link" target="_blank" rel="noreferrer">JetPhotos</a>
+              <a id="airhistory-link" class="text-link" target="_blank" rel="noreferrer">AirHistory</a>
+              <a id="source-link" class="text-link" target="_blank" rel="noreferrer">Source page</a>
             </div>
 
-            <div class="hero-actions actions">
-              <a id="google-link" class="button button-outline" target="_blank" rel="noreferrer">Google Images</a>
-              <a id="bing-link" class="button button-outline" target="_blank" rel="noreferrer">Bing Images</a>
-              <a id="jetphotos-link" class="button button-outline" target="_blank" rel="noreferrer">JetPhotos</a>
-              <a id="airhistory-link" class="button button-outline" target="_blank" rel="noreferrer">AirHistory</a>
-              <a id="source-link" class="button button-outline" target="_blank" rel="noreferrer">Source page</a>
-            </div>
-
-            <section class="panel-card content-section compact-top">
-              <div class="card-top">
-                <div>
-                  <span class="section-label">Visual evidence</span>
-                  <h3>Candidate images</h3>
-                  <p id="image-status">No images loaded.</p>
-                </div>
-                <button id="find-images" type="button" class="button button-outline">Find 6-10 images</button>
+            <section class="placeholder-card">
+              <p class="placeholder-label">Visual evidence</p>
+              <h2>Candidate images</h2>
+              <p id="image-status">No images loaded.</p>
+              <div class="hero-actions">
+                <button id="find-images" type="button" class="button button-secondary">Find 6-10 images</button>
               </div>
-              <div id="image-grid" class="card-grid card-grid-3"></div>
+              <div id="image-grid" class="tools-grid"></div>
             </section>
+          </section>
+        </section>
 
-            <div class="split-section">
-              <form id="ai-form" class="panel-card">
-                <div class="card-top">
-                  <div>
-                    <span class="section-label">AI assist</span>
-                    <h3>Groq marking comparison</h3>
-                  </div>
-                </div>
-                <label>
-                  <span class="mini-label">Extra context</span>
-                  <textarea id="context" class="button button-outline" rows="4" placeholder="Photo date, location, suspected serial, visible tail/nose details"></textarea>
-                </label>
-                <div class="hero-actions">
-                  <button id="run-ai" type="submit" class="button button-solid">Analyze displayed images</button>
-                </div>
-                <p>Groq runs server-side using the Railway `GROQ_API_KEY` variable. Groq vision accepts up to 5 images per request, so larger sets are analyzed in batches and synthesized.</p>
-              </form>
-
-              <section class="panel-card dark-card">
-                <div class="card-top">
-                  <div>
-                    <span class="section-label">Human review</span>
-                    <h3>Manual observations</h3>
-                  </div>
-                </div>
-                <label>
-                  <span class="mini-label">Paint demarcation</span>
-                  <select id="paint-line" class="button button-outline">
-                    <option value="">Unrecorded</option>
-                    <option>High fuselage line</option>
-                    <option>Low fuselage line</option>
-                    <option>Stepped near ramp</option>
-                    <option>Different on tanks</option>
-                    <option>Mostly uniform dark grey</option>
-                  </select>
-                </label>
-                <label>
-                  <span class="mini-label">Unique markings</span>
-                  <textarea id="markings" class="button button-outline" rows="5" placeholder="Sensor fairings, tail code traces, pod/tank paint split, antenna fit, patches, repairs"></textarea>
-                </label>
-                <label>
-                  <span class="mini-label">Confidence</span>
-                  <input id="confidence" class="button button-outline" type="range" min="0" max="100" value="0">
-                </label>
-                <div class="hero-actions">
-                  <button id="save-note" type="button" class="button button-outline">Save observation</button>
-                </div>
-              </section>
+        <section id="analysis" class="decision-grid">
+          <form id="ai-form" class="decision-card">
+            <div class="decision-text">
+              <p class="section-label">AI assist</p>
+              <h2>Groq marking comparison</h2>
+              <p>Groq runs server-side using the Railway <code>GROQ_API_KEY</code> variable. Groq vision accepts up to 5 images per request, so larger sets are analyzed in batches and synthesized.</p>
             </div>
+            <div class="decision-text">
+              <label class="legal-panel">
+                <span class="section-label">Extra context</span>
+                <textarea id="context" rows="5" placeholder="Photo date, location, suspected serial, visible tail/nose details"></textarea>
+              </label>
+              <button id="run-ai" type="submit" class="button button-primary">Analyze displayed images</button>
+            </div>
+          </form>
 
-            <section class="panel-card dark-card content-section compact-top">
-              <div class="card-top">
-                <div>
-                  <span class="section-label">Output</span>
-                  <h3>Analysis result</h3>
-                </div>
-                <button id="clear-result" type="button" class="button button-ghost">Clear</button>
-              </div>
-              <pre id="ai-output" class="panel-card dark-card">No analysis yet.</pre>
-            </section>
+          <section class="decision-card">
+            <div class="decision-text">
+              <p class="section-label">Human review</p>
+              <h2>Manual observations</h2>
+              <p>Capture visible paint, sensor, tail, pod, tank, antenna, or repair differences against the selected aircraft.</p>
+            </div>
+            <div class="decision-text">
+              <label class="legal-panel">
+                <span class="section-label">Paint demarcation</span>
+                <select id="paint-line">
+                  <option value="">Unrecorded</option>
+                  <option>High fuselage line</option>
+                  <option>Low fuselage line</option>
+                  <option>Stepped near ramp</option>
+                  <option>Different on tanks</option>
+                  <option>Mostly uniform dark grey</option>
+                </select>
+              </label>
+              <label class="legal-panel">
+                <span class="section-label">Unique markings</span>
+                <textarea id="markings" rows="5" placeholder="Sensor fairings, tail code traces, pod/tank paint split, antenna fit, patches, repairs"></textarea>
+              </label>
+              <label class="legal-panel">
+                <span class="section-label">Confidence</span>
+                <input id="confidence" type="range" min="0" max="100" value="0">
+              </label>
+              <button id="save-note" type="button" class="button button-secondary">Save observation</button>
+            </div>
+          </section>
+
+          <section class="legal-panel">
+            <div class="link-group">
+              <span class="text-link">Output</span>
+              <button id="clear-result" type="button" class="button button-secondary">Clear</button>
+            </div>
+            <h2>Analysis result</h2>
+            <pre id="ai-output">No analysis yet.</pre>
           </section>
         </section>
       </main>
     </div>
 
     <script src="app.js"></script>
-    <script>
-      (() => {
-        const enhance = () => {
-          document.querySelectorAll('.serial-item').forEach((item) => {
-            item.classList.add('stack-item', 'button-outline');
-            item.classList.toggle('feature-panel-accent', item.classList.contains('active'));
-          });
-          document.querySelectorAll('.badge').forEach((badge) => {
-            badge.classList.add('card-tag');
-          });
-          document.querySelectorAll('.image-card').forEach((card) => {
-            card.classList.add('panel-card');
-          });
-          document.querySelectorAll('.image-card footer').forEach((footer) => {
-            footer.classList.add('mini-copy');
-          });
-        };
-
-        enhance();
-        const observer = new MutationObserver(enhance);
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ['class']
-        });
-      })();
-    </script>
+    <script src="site-adapter.js"></script>
+    <script src="theme.js"></script>
   </body>
 </html>
