@@ -72,8 +72,17 @@ const els = {
 };
 
 let selected = aircraft[0];
-const notes = JSON.parse(localStorage.getItem("mc130j-notes") || "{}");
-const imageCache = JSON.parse(localStorage.getItem("mc130j-image-cache") || "{}");
+function readStoredJson(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch (error) {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+}
+
+const notes = readStoredJson("mc130j-notes", {});
+const imageCache = readStoredJson("mc130j-image-cache", {});
 els.total.textContent = aircraft.length;
 
 function searchQuery(item) {
