@@ -72,6 +72,7 @@ const els = {
 };
 
 let selected = aircraft[0];
+let recordLoadToken = 0;
 function readStoredJson(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
@@ -81,8 +82,8 @@ function readStoredJson(key, fallback) {
   }
 }
 
-const notes = readStoredJson("mc130j-notes", {});
 const imageCache = readStoredJson("mc130j-image-cache", {});
+const observationCache = {};
 els.total.textContent = aircraft.length;
 
 function searchQuery(item) {
@@ -118,13 +119,39 @@ function selectAircraft(item) {
   renderTags(item);
   updateLinks(item);
   renderImages(item.serial);
-  const note = notes[item.serial] || {};
-  els.paintLine.value = note.paintLine || "";
-  els.markings.value = note.markings || "";
-  els.confidence.value = note.confidence || 0;
+  applySerialRecord(observationCache[item.serial]);
+  loadSerialRecord(item.serial);
   document.querySelectorAll(".serial-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.serial === item.serial);
   });
+}
+
+function applySerialRecord(record) {
+  const latestManual = record?.latestManualObservation;
+  const latestGroq = record?.latestGroqAnalysis;
+  els.paintLine.value = latestManual?.paintLine || "";
+  els.markings.value = latestManual?.markings || "";
+  els.confidence.value = latestManual?.confidence || 0;
+  els.output.textContent = latestGroq?.report
+    ? latestGroq.report
+    : "No saved Groq analysis yet.";
+}
+
+async function loadSerialRecord(serial) {
+  const token = ++recordLoadToken;
+  try {
+    const response = await fetch(`/api/records?serial=${encodeURIComponent(serial)}`);
+    const record = await response.json();
+    if (!response.ok) throw new Error(record.error || "Could not load saved record.");
+    observationCache[serial] = record;
+    if (token === recordLoadToken && selected.serial === serial) {
+      applySerialRecord(record);
+    }
+  } catch (error) {
+    if (token === recordLoadToken && selected.serial === serial) {
+      els.output.textContent = `Could not load saved record: ${error.message}`;
+    }
+  }
 }
 
 function filteredAircraft() {
@@ -239,27 +266,54 @@ async function analyzeImage(event) {
   if (!response.ok) {
     throw new Error(data.error || "Groq analysis failed.");
   }
+  if (data.savedAnalysis) {
+    observationCache[selected.serial] = {
+      ...(observationCache[selected.serial] || {}),
+      latestGroqAnalysis: data.savedAnalysis,
+      groqAnalyses: [
+        ...(observationCache[selected.serial]?.groqAnalyses || []),
+        data.savedAnalysis
+      ]
+    };
+  }
   els.output.textContent = data.report || JSON.stringify(data, null, 2);
 }
 
-function saveObservation() {
-  notes[selected.serial] = {
+async function saveObservation() {
+  const response = await fetch("/api/observations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      serial: selected.serial,
     paintLine: els.paintLine.value,
     markings: els.markings.value.trim(),
-    confidence: els.confidence.value,
-    updatedAt: new Date().toISOString()
+      confidence: els.confidence.value
+    })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Could not save observation.");
+  }
+  observationCache[selected.serial] = {
+    ...(observationCache[selected.serial] || {}),
+    latestManualObservation: data.saved,
+    manualObservations: data.manualObservations || []
   };
-  localStorage.setItem("mc130j-notes", JSON.stringify(notes));
   els.output.textContent = `Saved observation for ${selected.serial}.`;
 }
 
-function exportNotes() {
-  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), notes }, null, 2);
+async function exportNotes() {
+  const response = await fetch("/api/records");
+  const database = await response.json();
+  if (!response.ok) {
+    throw new Error(database.error || "Could not export database.");
+  }
+  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), database }, null, 2);
   const blob = new Blob([payload], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "mc130j-observations.json";
+  a.download = "mc130j-database-export.json";
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -273,8 +327,12 @@ els.findImages.addEventListener("click", () => findImages().catch((error) => {
 els.aiForm.addEventListener("submit", (event) => analyzeImage(event).catch((error) => {
   els.output.textContent = error.message;
 }));
-els.saveNote.addEventListener("click", saveObservation);
-els.exportJson.addEventListener("click", exportNotes);
+els.saveNote.addEventListener("click", () => saveObservation().catch((error) => {
+  els.output.textContent = error.message;
+}));
+els.exportJson.addEventListener("click", () => exportNotes().catch((error) => {
+  els.output.textContent = error.message;
+}));
 els.clearResult.addEventListener("click", () => {
   els.output.textContent = "No analysis yet.";
 });

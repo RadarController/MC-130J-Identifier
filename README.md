@@ -9,7 +9,7 @@ A small browser app for researching USAF MC-130J serials, finding public images,
 - Scrapes public image search results for 6-10 candidate photos per selected serial.
 - Caches image search results server-side so the same serial is not scraped on every request.
 - Sends displayed image URLs to Groq's OpenAI-compatible Responses API for marking analysis.
-- Stores manual observations in browser local storage and exports them as JSON.
+- Stores manual observations and Groq comparison reports in Postgres when `DATABASE_URL` is configured.
 
 ## Run Locally
 
@@ -36,14 +36,17 @@ $env:CACHE_DIR="C:\path\to\cache"
 $env:IMAGE_CACHE_TTL_HOURS="168"
 ```
 
+Manual observations and Groq reports use Postgres when `DATABASE_URL` is set. Without `DATABASE_URL`, the app falls back to `.cache/observations-db.json` for local development.
+
 ## Deploy On Railway
 
 1. Push this repo to GitHub.
 2. Create a new Railway project from the GitHub repo.
 3. Add a Railway variable named `GROQ_API_KEY`.
 4. Optionally add `GROQ_MODEL` to override the default vision model.
-5. Optionally add a Railway Volume and set `CACHE_DIR` to the mounted path, such as `/data`, so image-search cache survives redeploys.
-6. Railway should detect Node.js and run `npm start`.
+5. Add a Railway Postgres database and make sure `DATABASE_URL` is available to the web service.
+6. Optionally add a Railway Volume and set `CACHE_DIR` to the mounted path, such as `/data`, so image-search cache survives redeploys.
+7. Railway should detect Node.js and run `npm start`.
 
 ## Data Notes
 

@@ -8,7 +8,11 @@ const host = process.env.HOST || "0.0.0.0";
 const groqModel = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
 const cacheDir = process.env.CACHE_DIR || path.join(root, ".cache");
 const imageCacheFile = path.join(cacheDir, "image-search-cache.json");
+const databaseFile = path.join(cacheDir, "observations-db.json");
+const databaseUrl = process.env.DATABASE_URL || "";
 const imageCacheTtlMs = Number(process.env.IMAGE_CACHE_TTL_HOURS || 168) * 60 * 60 * 1000;
+let pgPool;
+let pgReady;
 const allowedImageHosts = [
   "airhistory.net",
   "airport-data.com",
@@ -72,13 +76,272 @@ function readBody(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 1_000_000) {
+      if (body.length > 2_000_000) {
         reject(new Error("Request body too large"));
         req.destroy();
       }
     });
     req.on("end", () => resolve(body));
     req.on("error", reject);
+  });
+}
+
+function emptyDatabase() {
+  return {
+    version: 1,
+    serials: {}
+  };
+}
+
+async function getPgPool() {
+  if (!databaseUrl) return null;
+  if (!pgPool) {
+    const { Pool } = require("pg");
+    pgPool = new Pool({
+      connectionString: databaseUrl,
+      ssl: databaseUrl.includes("railway.internal") ? false : { rejectUnauthorized: false }
+    });
+  }
+  if (!pgReady) {
+    pgReady = (async () => {
+      await pgPool.query(`
+        create table if not exists manual_observations (
+          id bigserial primary key,
+          serial text not null,
+          paint_line text default '',
+          markings text default '',
+          confidence integer default 0,
+          created_at timestamptz not null default now()
+        );
+        create table if not exists groq_analyses (
+          id bigserial primary key,
+          serial text not null,
+          model text not null,
+          image_count integer not null default 0,
+          images jsonb not null default '[]'::jsonb,
+          batches jsonb not null default '[]'::jsonb,
+          report text not null default '',
+          context text not null default '',
+          created_at timestamptz not null default now()
+        );
+        create index if not exists manual_observations_serial_created_idx
+          on manual_observations (serial, created_at desc);
+        create index if not exists groq_analyses_serial_created_idx
+          on groq_analyses (serial, created_at desc);
+      `);
+    })();
+  }
+  await pgReady;
+  return pgPool;
+}
+
+function manualRow(row) {
+  return {
+    id: String(row.id),
+    serial: row.serial,
+    paintLine: row.paint_line || "",
+    markings: row.markings || "",
+    confidence: Number(row.confidence || 0),
+    createdAt: row.created_at
+  };
+}
+
+function groqRow(row) {
+  return {
+    id: String(row.id),
+    serial: row.serial,
+    model: row.model,
+    imageCount: Number(row.image_count || 0),
+    images: row.images || [],
+    batches: row.batches || [],
+    report: row.report || "",
+    context: row.context || "",
+    createdAt: row.created_at
+  };
+}
+
+async function readDatabase() {
+  try {
+    const data = JSON.parse(await fs.readFile(databaseFile, "utf8"));
+    return data?.serials ? data : emptyDatabase();
+  } catch (error) {
+    return emptyDatabase();
+  }
+}
+
+async function writeDatabase(database) {
+  await fs.mkdir(cacheDir, { recursive: true });
+  await fs.writeFile(databaseFile, JSON.stringify(database, null, 2));
+}
+
+function serialRecord(database, serial) {
+  if (!database.serials[serial]) {
+    database.serials[serial] = {
+      manualObservations: [],
+      groqAnalyses: []
+    };
+  }
+  return database.serials[serial];
+}
+
+function latest(items) {
+  return items?.length ? items[items.length - 1] : null;
+}
+
+async function appendManualObservation(serial, observation) {
+  const pool = await getPgPool();
+  if (pool) {
+    const result = await pool.query(
+      `insert into manual_observations (serial, paint_line, markings, confidence)
+       values ($1, $2, $3, $4)
+       returning *`,
+      [
+        serial,
+        observation.paintLine || "",
+        observation.markings || "",
+        Number(observation.confidence || 0)
+      ]
+    );
+    const saved = manualRow(result.rows[0]);
+    const record = await loadSerialRecord(serial);
+    return { record, saved };
+  }
+
+  const database = await readDatabase();
+  const record = serialRecord(database, serial);
+  const saved = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    serial,
+    paintLine: observation.paintLine || "",
+    markings: observation.markings || "",
+    confidence: Number(observation.confidence || 0),
+    createdAt: new Date().toISOString()
+  };
+  record.manualObservations.push(saved);
+  await writeDatabase(database);
+  return { record, saved };
+}
+
+async function appendGroqAnalysis(serial, analysis) {
+  const pool = await getPgPool();
+  if (pool) {
+    const result = await pool.query(
+      `insert into groq_analyses (serial, model, image_count, images, batches, report, context)
+       values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+       returning *`,
+      [
+        serial,
+        analysis.model,
+        Number(analysis.imageCount || 0),
+        JSON.stringify(analysis.images || []),
+        JSON.stringify(analysis.batches || []),
+        analysis.report || "",
+        analysis.context || ""
+      ]
+    );
+    const saved = groqRow(result.rows[0]);
+    const record = await loadSerialRecord(serial);
+    return { record, saved };
+  }
+
+  const database = await readDatabase();
+  const record = serialRecord(database, serial);
+  const saved = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    serial,
+    model: analysis.model,
+    imageCount: analysis.imageCount,
+    images: analysis.images || [],
+    batches: analysis.batches || [],
+    report: analysis.report || "",
+    context: analysis.context || "",
+    createdAt: new Date().toISOString()
+  };
+  record.groqAnalyses.push(saved);
+  await writeDatabase(database);
+  return { record, saved };
+}
+
+async function loadSerialRecord(serial) {
+  const pool = await getPgPool();
+  if (pool) {
+    const [manual, groq] = await Promise.all([
+      pool.query(
+        `select * from manual_observations where serial = $1 order by created_at asc, id asc`,
+        [serial]
+      ),
+      pool.query(
+        `select * from groq_analyses where serial = $1 order by created_at asc, id asc`,
+        [serial]
+      )
+    ]);
+    const manualObservations = manual.rows.map(manualRow);
+    const groqAnalyses = groq.rows.map(groqRow);
+    return {
+      manualObservations,
+      groqAnalyses
+    };
+  }
+
+  const database = await readDatabase();
+  return database.serials[serial] || { manualObservations: [], groqAnalyses: [] };
+}
+
+async function loadAllRecords() {
+  const pool = await getPgPool();
+  if (pool) {
+    const [manual, groq] = await Promise.all([
+      pool.query(`select * from manual_observations order by serial asc, created_at asc, id asc`),
+      pool.query(`select * from groq_analyses order by serial asc, created_at asc, id asc`)
+    ]);
+    const database = emptyDatabase();
+    for (const row of manual.rows.map(manualRow)) {
+      serialRecord(database, row.serial).manualObservations.push(row);
+    }
+    for (const row of groq.rows.map(groqRow)) {
+      serialRecord(database, row.serial).groqAnalyses.push(row);
+    }
+    return database;
+  }
+
+  return readDatabase();
+}
+
+async function handleRecords(req, res) {
+  const url = new URL(req.url, `http://${host}:${port}`);
+  const serial = url.searchParams.get("serial");
+
+  if (!serial) {
+    const database = await loadAllRecords();
+    sendJson(res, 200, database);
+    return;
+  }
+
+  const record = await loadSerialRecord(serial);
+  sendJson(res, 200, {
+    serial,
+    manualObservations: record.manualObservations || [],
+    groqAnalyses: record.groqAnalyses || [],
+    latestManualObservation: latest(record.manualObservations),
+    latestGroqAnalysis: latest(record.groqAnalyses)
+  });
+}
+
+async function handleObservationSave(req, res) {
+  const body = JSON.parse(await readBody(req) || "{}");
+  const serial = String(body.serial || "").trim();
+
+  if (!serial) {
+    sendJson(res, 400, { error: "Missing serial" });
+    return;
+  }
+
+  const { record, saved } = await appendManualObservation(serial, body);
+  sendJson(res, 200, {
+    saved,
+    latestManualObservation: saved,
+    manualObservations: record.manualObservations,
+    groqAnalyses: record.groqAnalyses
   });
 }
 
@@ -434,7 +697,17 @@ async function handleAnalyze(req, res) {
     }], model);
   }
 
-  sendJson(res, 200, { model, imageCount: images.length, batches, report });
+  const analysis = {
+    model,
+    imageCount: images.length,
+    images,
+    batches,
+    report,
+    context
+  };
+  const { saved } = await appendGroqAnalysis(aircraft.serial, analysis);
+
+  sendJson(res, 200, { ...analysis, savedAnalysis: saved });
 }
 
 async function serveStatic(req, res) {
@@ -464,6 +737,14 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${host}:${port}`);
     if (req.method === "GET" && url.pathname === "/api/images") {
       await handleImages(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/records") {
+      await handleRecords(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/observations") {
+      await handleObservationSave(req, res);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/analyze") {
