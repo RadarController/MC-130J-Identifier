@@ -229,6 +229,40 @@ function renderImages(serial) {
   });
 }
 
+
+function formatImageSearchDebug(debug) {
+  if (!debug) return "";
+  const lines = [];
+  const sourceSummary = Object.entries(debug.final?.sources || {})
+    .map(([source, count]) => `${source}: ${count}`)
+    .join(", ") || "none";
+  lines.push("Image search diagnostics");
+  lines.push(`Final images: ${debug.final?.count || 0} (${sourceSummary})`);
+  lines.push(`C-130.net: found ${debug.c130Net?.found || 0}, accepted ${(debug.c130Net?.acceptedInitial || 0) + (debug.c130Net?.acceptedTopUp || 0)}`);
+
+  const bingRaw = (debug.bingImages || []).reduce((sum, item) => sum + (item.rawResults || 0), 0);
+  const bingAccepted = (debug.bingImages || []).reduce((sum, item) => sum + (item.accepted || 0), 0);
+  lines.push(`Bing Images: ${bingRaw} raw candidates, ${bingAccepted} accepted`);
+
+  const rejectionTotals = {};
+  for (const item of debug.bingImages || []) {
+    for (const [reason, count] of Object.entries(item.rejected || {})) {
+      rejectionTotals[reason] = (rejectionTotals[reason] || 0) + count;
+    }
+  }
+  const rejectionText = Object.entries(rejectionTotals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${reason}: ${count}`)
+    .join(", ");
+  if (rejectionText) lines.push(`Bing rejections: ${rejectionText}`);
+
+  const pageCount = (debug.bingPages || []).reduce((sum, item) => sum + (item.pages || 0), 0);
+  const pageAccepted = (debug.bingPages || []).reduce((sum, item) => sum + (item.accepted || 0), 0);
+  lines.push(`Bing source pages: ${pageCount} pages checked, ${pageAccepted} images accepted`);
+  lines.push("Full debug payload is available in the browser console as window.lastImageSearchDebug.");
+  return lines.join("\n");
+}
+
 async function findImages() {
   const buttonLabel = "Find images";
   els.imageStatus.textContent = `Searching images for ${selected.serial}...`;
@@ -244,7 +278,8 @@ async function findImages() {
       local: selected.local || "",
       source: selected.source || "",
       limit: "10",
-      refresh: "1"
+      refresh: "1",
+      debug: "1"
     });
     const response = await fetch(`/api/images?${params}`);
     const data = await response.json();
@@ -254,9 +289,14 @@ async function findImages() {
     imageCache[selected.serial] = data.images || [];
     localStorage.setItem("mc130j-image-cache", JSON.stringify(imageCache));
     renderImages(selected.serial);
-    els.output.textContent = imageCache[selected.serial].length
+    window.lastImageSearchDebug = data.debug || null;
+    const resultMessage = imageCache[selected.serial].length
       ? `Found ${imageCache[selected.serial].length} refreshed candidate image${imageCache[selected.serial].length === 1 ? "" : "s"} for ${selected.serial}.`
       : `No source-confirmed images found for ${selected.serial}. Try the manual image links above.`;
+    const debugMessage = formatImageSearchDebug(data.debug);
+    els.output.textContent = debugMessage ? `${resultMessage}
+
+${debugMessage}` : resultMessage;
   } finally {
     if (els.findImages) {
       els.findImages.disabled = false;

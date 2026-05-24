@@ -765,6 +765,55 @@ async function fetchC130NetImages(serial, local, sourcePage, limit) {
   return images;
 }
 
+
+function createImageSearchDebug(serial, local, limit, refresh) {
+  return {
+    serial,
+    local,
+    limit,
+    refresh,
+    startedAt: new Date().toISOString(),
+    c130Net: { attempted: false, found: 0, acceptedInitial: 0, acceptedTopUp: 0, errors: [] },
+    bingImages: [],
+    bingPages: [],
+    final: { count: 0, sources: {} }
+  };
+}
+
+function debugCounter(bucket, key, amount = 1) {
+  if (!bucket) return;
+  bucket[key] = (bucket[key] || 0) + amount;
+}
+
+function summarizeImageSearchDebug(debug) {
+  const bingRaw = debug.bingImages.reduce((sum, item) => sum + (item.rawResults || 0), 0);
+  const bingAccepted = debug.bingImages.reduce((sum, item) => sum + (item.accepted || 0), 0);
+  const bingRejected = debug.bingImages.reduce((sum, item) => sum + Object.values(item.rejected || {}).reduce((a, b) => a + b, 0), 0);
+  const pageCandidates = debug.bingPages.reduce((sum, item) => sum + (item.pages || 0), 0);
+  const pageAccepted = debug.bingPages.reduce((sum, item) => sum + (item.accepted || 0), 0);
+  return {
+    serial: debug.serial,
+    local: debug.local,
+    c130Found: debug.c130Net.found,
+    c130Accepted: debug.c130Net.acceptedInitial + debug.c130Net.acceptedTopUp,
+    bingRaw,
+    bingAccepted,
+    bingRejected,
+    pageCandidates,
+    pageAccepted,
+    finalCount: debug.final.count,
+    finalSources: debug.final.sources
+  };
+}
+
+function logImageSearchDebug(debug) {
+  try {
+    console.log(`[image-search] ${JSON.stringify(summarizeImageSearchDebug(debug))}`);
+  } catch (error) {
+    console.log(`[image-search] ${debug.serial}: ${debug.final.count} images returned`);
+  }
+}
+
 function normalizeBingImageUrl(rawUrl) {
   return normalizeImageUrl(safeDecodeURIComponent(rawUrl));
 }
@@ -776,8 +825,20 @@ async function pageConfirmsIdentity(pageUrl, serial, local) {
   return identityIsConfirmed(`${pageUrl} ${html}`, serial, local) && likelyMc130Context(`${pageUrl} ${html}`);
 }
 
-async function fetchBingImages(query, serial, local, limit) {
+async function fetchBingImages(query, serial, local, limit, debug) {
   const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1&safeSearch=strict`;
+  const debugEntry = {
+    query,
+    url,
+    rawResults: 0,
+    accepted: 0,
+    rejected: {},
+    pageChecks: 0,
+    pageConfirmed: 0,
+    error: ""
+  };
+  debug?.bingImages?.push(debugEntry);
+
   const response = await fetch(url, {
     headers: {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
@@ -786,6 +847,7 @@ async function fetchBingImages(query, serial, local, limit) {
   });
 
   if (!response.ok) {
+    debugEntry.error = `HTTP ${response.status}`;
     throw new Error(`Image search failed with HTTP ${response.status}`);
   }
 
@@ -796,7 +858,14 @@ async function fetchBingImages(query, serial, local, limit) {
   const collectImage = (rawUrl, metadata = "", width = 0, height = 0, pageUrl = "") => {
     const imageUrl = normalizeBingImageUrl(rawUrl);
     const key = imageUrl.split("?")[0].toLowerCase();
-    if (rawSeen.has(key) || !isUsefulImageUrl(imageUrl, { enforceAllowedHosts: false })) return;
+    if (rawSeen.has(key)) {
+      debugCounter(debugEntry.rejected, "duplicate_raw_url");
+      return;
+    }
+    if (!isUsefulImageUrl(imageUrl, { enforceAllowedHosts: false })) {
+      debugCounter(debugEntry.rejected, "not_useful_or_blocked_url");
+      return;
+    }
     rawSeen.add(key);
     rawResults.push({ imageUrl, metadata, width, height, pageUrl });
   };
@@ -817,7 +886,7 @@ async function fetchBingImages(query, serial, local, limit) {
         );
       }
     } catch (error) {
-      // Fall back to simpler URL extraction below.
+      debugCounter(debugEntry.rejected, "metadata_parse_error");
     }
   }
 
@@ -833,13 +902,18 @@ async function fetchBingImages(query, serial, local, limit) {
     }
   }
 
+  debugEntry.rawResults = rawResults.length;
+
   const results = [];
   const seen = new Set();
   const pageIdentityCache = new Map();
 
   for (const raw of rawResults) {
     const key = raw.imageUrl.split("?")[0].toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      debugCounter(debugEntry.rejected, "duplicate_final_url");
+      continue;
+    }
 
     const evidence = `${raw.metadata} ${raw.imageUrl} ${raw.pageUrl}`;
     const contextEvidence = `${query} ${evidence}`;
@@ -849,16 +923,28 @@ async function fetchBingImages(query, serial, local, limit) {
     if (!confirmed && raw.pageUrl) {
       const pageKey = raw.pageUrl.split("?")[0].toLowerCase();
       if (!pageIdentityCache.has(pageKey)) {
+        debugEntry.pageChecks += 1;
         pageIdentityCache.set(pageKey, await pageConfirmsIdentity(raw.pageUrl, serial, local));
       }
       confirmed = pageIdentityCache.get(pageKey);
+      if (confirmed) debugEntry.pageConfirmed += 1;
       confirmedBy = "Bing result source page contains exact serial/local marking";
     }
 
-    if (!confirmed || !likelyMc130Context(contextEvidence)) continue;
+    if (!confirmed) {
+      debugCounter(debugEntry.rejected, "serial_or_local_not_confirmed");
+      continue;
+    }
+    if (!likelyMc130Context(contextEvidence)) {
+      debugCounter(debugEntry.rejected, "no_mc130_or_c130_context");
+      continue;
+    }
 
     const validated = await validateImageCandidate(raw.imageUrl, { enforceAllowedHosts: false, rejectBranding: true });
-    if (!validated) continue;
+    if (!validated) {
+      debugCounter(debugEntry.rejected, "image_validation_failed");
+      continue;
+    }
 
     const width = Number(raw.width || validated.width || 0) || undefined;
     const height = Number(raw.height || validated.height || 0) || undefined;
@@ -876,6 +962,7 @@ async function fetchBingImages(query, serial, local, limit) {
       identityConfirmed: true,
       identityConfirmedBy: confirmedBy
     });
+    debugEntry.accepted += 1;
     seen.add(key);
     if (results.length >= limit * 2) break;
   }
@@ -883,7 +970,7 @@ async function fetchBingImages(query, serial, local, limit) {
   return sortedImages(results).slice(0, limit);
 }
 
-async function fetchBingPages(query, limit) {
+async function fetchBingPages(query, limit, debug) {
   const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&first=1&safeSearch=strict`;
   const response = await fetch(url, {
     headers: {
@@ -891,7 +978,12 @@ async function fetchBingPages(query, limit) {
       "accept-language": "en-US,en;q=0.9"
     }
   });
-  if (!response.ok) return [];
+  const debugEntry = { query, url, pages: 0, accepted: 0, errors: [] };
+  debug?.bingPages?.push(debugEntry);
+  if (!response.ok) {
+    debugEntry.errors.push(`HTTP ${response.status}`);
+    return [];
+  }
 
   const html = await response.text();
   const pages = [];
@@ -902,6 +994,7 @@ async function fetchBingPages(query, limit) {
     if (seen.has(key) || !isCandidateSourcePageUrl(pageUrl)) continue;
     seen.add(key);
     pages.push(pageUrl);
+    debugEntry.pages = pages.length;
     if (pages.length >= limit) break;
   }
   return pages;
@@ -920,7 +1013,7 @@ function attrValue(tag, attr) {
   return match ? match[1] : "";
 }
 
-async function extractImagesFromPage(pageUrl, query, limit, serial, local) {
+async function extractImagesFromPage(pageUrl, query, limit, serial, local, debugEntry) {
   try {
     const response = await fetch(pageUrl, {
       headers: {
@@ -928,10 +1021,16 @@ async function extractImagesFromPage(pageUrl, query, limit, serial, local) {
         "accept-language": "en-US,en;q=0.9"
       }
     });
-    if (!response.ok) return [];
+    if (!response.ok) {
+      debugEntry?.errors?.push(`${pageUrl}: HTTP ${response.status}`);
+      return [];
+    }
     const html = await response.text();
     const pageEvidence = `${pageUrl} ${html}`;
-    if (!identityIsConfirmed(pageEvidence, serial, local)) return [];
+    if (!identityIsConfirmed(pageEvidence, serial, local)) {
+      debugEntry && debugCounter(debugEntry, "source_page_identity_not_confirmed");
+      return [];
+    }
 
     const candidates = [];
     const seen = new Set();
@@ -939,7 +1038,14 @@ async function extractImagesFromPage(pageUrl, query, limit, serial, local) {
       const imageUrl = normalizeImageUrl(absolutizeUrl(rawUrl, pageUrl));
       const key = imageUrl.split("?")[0].toLowerCase();
       const evidence = `${pageUrl} ${sourceTag} ${imageUrl}`;
-      if (seen.has(key) || !isUsefulImageUrl(imageUrl, { enforceAllowedHosts: false })) return false;
+      if (seen.has(key)) {
+        debugEntry && debugCounter(debugEntry, "duplicate_page_image");
+        return false;
+      }
+      if (!isUsefulImageUrl(imageUrl, { enforceAllowedHosts: false })) {
+        debugEntry && debugCounter(debugEntry, "page_image_not_useful_or_blocked");
+        return false;
+      }
       seen.add(key);
       candidates.push({
         url: imageUrl,
@@ -953,6 +1059,7 @@ async function extractImagesFromPage(pageUrl, query, limit, serial, local) {
         identityConfirmed: true,
         identityConfirmedBy: "Source page contains exact serial/local marking"
       });
+      if (debugEntry) debugEntry.accepted = (debugEntry.accepted || 0) + 1;
       return candidates.length >= limit;
     };
 
@@ -975,6 +1082,7 @@ async function extractImagesFromPage(pageUrl, query, limit, serial, local) {
 
     return sortedImages(candidates).slice(0, limit);
   } catch (error) {
+    debugEntry?.errors?.push(`${pageUrl}: ${error.message || "page extraction failed"}`);
     return [];
   }
 }
@@ -994,6 +1102,8 @@ async function handleImages(req, res) {
   const sourcePage = url.searchParams.get("source") || "";
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 10), 1), 10);
   const refresh = url.searchParams.get("refresh") === "1";
+  const debugEnabled = url.searchParams.get("debug") === "1" || process.env.IMAGE_SEARCH_DEBUG === "1";
+  const debug = createImageSearchDebug(serial, local, limit, refresh);
 
   if (!serial) {
     sendJson(res, 400, { error: "Missing serial" });
@@ -1003,13 +1113,21 @@ async function handleImages(req, res) {
   const cache = await readImageCache();
   const searchCacheKey = cacheKey(serial, local);
   if (!refresh && isFreshCache(cache[searchCacheKey])) {
-    sendJson(res, 200, { serial, local, cached: true, images: cache[searchCacheKey].images.slice(0, limit) });
+    debug.final.count = cache[searchCacheKey].images.slice(0, limit).length;
+    debug.final.sources = cache[searchCacheKey].images.slice(0, limit).reduce((acc, image) => {
+      acc[image.source || "Unknown"] = (acc[image.source || "Unknown"] || 0) + 1;
+      return acc;
+    }, {});
+    logImageSearchDebug(debug);
+    sendJson(res, 200, { serial, local, cached: true, images: cache[searchCacheKey].images.slice(0, limit), ...(debugEnabled ? { debug } : {}) });
     return;
   }
 
   const queries = [
     `"${serial}" "MC-130J"`,
-    local ? `"${local}" "MC-130J" "Commando II"` : "",
+    local ? `"${local}" "MC-130J"` : "",
+    local ? `"${local}" "Commando II"` : "",
+    local ? `"${serial}" "${local}"` : "",
     `"${serial}" "USAF" "Commando II"`,
     `"${serial}" "Lockheed Martin" "MC-130J"`,
     `"${serial}" "MC-130J" site:flickr.com`,
@@ -1021,16 +1139,25 @@ async function handleImages(req, res) {
 
   const images = [];
   const seen = new Set();
-  const c130Images = sortedImages(await fetchC130NetImages(serial, local, sourcePage, limit).catch(() => []));
+  debug.c130Net.attempted = Boolean(sourcePage);
+  const c130Images = sortedImages(await fetchC130NetImages(serial, local, sourcePage, limit).catch((error) => {
+    debug.c130Net.errors.push(error.message || "C-130.net search failed");
+    return [];
+  }));
+  debug.c130Net.found = c130Images.length;
   const c130InitialLimit = Math.min(c130Images.length, Math.max(3, Math.floor(limit / 2)));
 
   for (const image of c130Images.slice(0, c130InitialLimit)) {
-    addUniqueImage(images, seen, image);
+    if (addUniqueImage(images, seen, image)) debug.c130Net.acceptedInitial += 1;
   }
 
   // Always run Bing image searches even when C-130.net returned candidates, so the result set includes independent imagery.
   for (const query of queries) {
-    const found = await fetchBingImages(query, serial, local, limit).catch(() => []);
+    const found = await fetchBingImages(query, serial, local, limit, debug).catch((error) => {
+      const last = debug.bingImages[debug.bingImages.length - 1];
+      if (last && !last.error) last.error = error.message || "Bing image search failed";
+      return [];
+    });
     for (const image of found) {
       addUniqueImage(images, seen, image);
       if (images.length >= limit) break;
@@ -1041,9 +1168,14 @@ async function handleImages(req, res) {
   // Fall back to source pages found through Bing only when image search has not filled the target set.
   if (images.length < limit) {
     for (const query of queries) {
-      const pages = await fetchBingPages(query, 8).catch(() => []);
+      const pageDebug = { query, pages: 0, accepted: 0, errors: [] };
+      const pages = await fetchBingPages(query, 8, debug).catch((error) => {
+        pageDebug.errors.push(error.message || "Bing page search failed");
+        return [];
+      });
+      const activePageDebug = debug.bingPages[debug.bingPages.length - 1] || pageDebug;
       for (const page of pages) {
-        const found = await extractImagesFromPage(page, query, limit - images.length, serial, local);
+        const found = await extractImagesFromPage(page, query, limit - images.length, serial, local, activePageDebug);
         for (const image of found) {
           addUniqueImage(images, seen, image);
           if (images.length >= limit) break;
@@ -1057,15 +1189,22 @@ async function handleImages(req, res) {
   // If strict Bing confirmation is sparse, top up with remaining source-confirmed C-130.net full-size images.
   if (images.length < limit) {
     for (const image of c130Images.slice(c130InitialLimit)) {
-      addUniqueImage(images, seen, image);
+      if (addUniqueImage(images, seen, image)) debug.c130Net.acceptedTopUp += 1;
       if (images.length >= limit) break;
     }
   }
 
   const finalImages = sortedImages(images).slice(0, limit);
+  debug.final.count = finalImages.length;
+  debug.final.sources = finalImages.reduce((acc, image) => {
+    acc[image.source || "Unknown"] = (acc[image.source || "Unknown"] || 0) + 1;
+    return acc;
+  }, {});
+  debug.finishedAt = new Date().toISOString();
+  logImageSearchDebug(debug);
   cache[searchCacheKey] = { serial, local, images: finalImages, updatedAt: new Date().toISOString() };
   await writeImageCache(cache);
-  sendJson(res, 200, { serial, local, cached: false, images: finalImages });
+  sendJson(res, 200, { serial, local, cached: false, images: finalImages, ...(debugEnabled ? { debug } : {}) });
 }
 
 function groqText(response) {
